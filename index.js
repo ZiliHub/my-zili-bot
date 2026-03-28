@@ -78,7 +78,7 @@ client.once("ready", async () => {
     console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys HỢP LỆ vào bộ nhớ!`);
   }
 
-  // 2. BACKGROUND CHECK (1 Phút / Lần)
+  // 2. BACKGROUND CHECK (1 Phút / Lần) - LOGIC MỚI SIÊU CHUẨN
   setInterval(async () => {
     const currentKeys = await fetchWorker("list");
     if (!currentKeys || !Array.isArray(currentKeys)) return;
@@ -87,9 +87,8 @@ client.once("ready", async () => {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return;
 
-    // Duyệt qua TOÀN BỘ keys từ Database Cloudflare
     for (const keyData of currentKeys) {
-      if (!keyData.did) continue; // Bỏ qua những key chưa có ai Redeem
+      if (!keyData.did) continue;
 
       const discordId = keyData.did;
       const userKey = keyData.id;
@@ -98,49 +97,62 @@ client.once("ready", async () => {
         const member = await guild.members.fetch(discordId).catch(() => null);
         if (!member) continue;
 
-        // Bắt chặt trạng thái Ban giống như lúc Boot
-        const isBanned = keyData.banned === true || keyData.banned === "true" || keyData.status === "Banned" || keyData.status === "banned" || keyData.flags >= 5;
+        // ÉP CHỮ VỀ VIẾT THƯỜNG ĐỂ SO SÁNH (Chống trượt điều kiện Ban)
+        const status = String(keyData.status || "").toLowerCase();
+        const bannedStr = String(keyData.banned || "").toLowerCase();
+        
+        const isBanned = bannedStr === "true" || keyData.banned === 1 || status === "banned" || keyData.flags >= 5;
         const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
 
+        // ==========================================
         // TRƯỜNG HỢP 1: BỊ BAN HOẶC HẾT HẠN
+        // ==========================================
         if (isBanned || isExpired) {
-          if (userWhitelist.has(discordId)) {
-            userWhitelist.delete(discordId);
+          // 1. Luôn xóa khỏi não bot
+          userWhitelist.delete(discordId);
+
+          // 2. NHÌN VÀO THỰC TẾ: Nếu user VẪN CÒN Role Customer -> Tước Role & Nhắn tin
+          if (member.roles.cache.has(CUSTOMER_ROLE_ID)) {
+            console.log(`⛔ Thực thi BAN cho ID: ${discordId}`);
             try {
               await member.roles.remove(CUSTOMER_ROLE_ID);
               if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
                 await member.roles.add(NOT_BUYER_ROLE_ID);
               }
-            } catch (e) {}
 
-            // Nhắn tin báo tử
-            const embed = new EmbedBuilder()
-              .setColor(isBanned ? "#ef4444" : "#6b7280")
-              .setTitle(isBanned ? "⛔ ACCOUNT REVOKED" : "⏰ LICENSE EXPIRED")
-              .setDescription(isBanned 
-                ? "Your access to Zili Hub has been permanently revoked due to a security violation or manual ban." 
-                : "Your Zili Hub license has officially expired. Your roles have been removed.")
-              .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
-            
-            await member.send({ embeds: [embed] }).catch(() => {});
+              const embed = new EmbedBuilder()
+                .setColor(isBanned ? "#ef4444" : "#6b7280")
+                .setTitle(isBanned ? "⛔ ACCOUNT REVOKED" : "⏰ LICENSE EXPIRED")
+                .setDescription(isBanned 
+                  ? "Your access to Zili Hub has been permanently revoked due to a security violation or manual ban." 
+                  : "Your Zili Hub license has officially expired. Your roles have been removed.")
+                .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
+              
+              await member.send({ embeds: [embed] }).catch(() => {});
+            } catch (e) {
+              console.error(`Lỗi khi tước role của ${discordId}:`, e);
+            }
           }
-          continue; // Bỏ qua người này, đi check người tiếp theo
+          continue; // Xong việc của đứa bị Ban, check đứa tiếp theo
         }
 
-        // TRƯỜNG HỢP 2: HỢP LỆ NHƯNG KHÔNG CÓ TRONG NÃO (ĐƯỢC UNBAN)
-        if (!userWhitelist.has(discordId)) {
-          console.log(`🔄 Tự động khôi phục cho ID: ${discordId} (Unbanned)`);
-          userWhitelist.set(discordId, userKey); // Nạp lại vào não
-          
+        // ==========================================
+        // TRƯỜNG HỢP 2: HỢP LỆ (UNBAN HOẶC ĐANG XÀI BÌNH THƯỜNG)
+        // ==========================================
+        // Cập nhật lại vào não
+        userWhitelist.set(discordId, userKey); 
+
+        // Nếu user HỢP LỆ nhưng lại KHÔNG CÓ Role Customer (tức là vừa được Unban)
+        if (!member.roles.cache.has(CUSTOMER_ROLE_ID)) {
+          console.log(`✅ Khôi phục quyền (UNBAN) cho ID: ${discordId}`);
           try {
             await member.roles.add(CUSTOMER_ROLE_ID);
             if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
               await member.roles.remove(NOT_BUYER_ROLE_ID);
             }
             
-            // THÊM: Gửi thư thông báo UNBAN xanh lá bằng Tiếng Anh
             const unbanEmbed = new EmbedBuilder()
-              .setColor("#10b981") // Màu xanh lá
+              .setColor("#10b981")
               .setTitle("✅ ACCOUNT RESTORED")
               .setDescription("Great news! Your appeal was successful and your ban has been lifted.\n\nYour access and **Customer** roles have been fully restored. You can now return to the server and use the panel to get your script again.")
               .setFooter({ text: "Zili Hub Support Team", iconURL: client.user.displayAvatarURL() })
@@ -149,7 +161,9 @@ client.once("ready", async () => {
           } catch (e) {}
         }
 
-        // TRƯỜNG HỢP 3: SẮP HẾT HẠN (CẢNH BÁO)
+        // ==========================================
+        // TRƯỜNG HỢP 3: CẢNH BÁO SẮP HẾT HẠN
+        // ==========================================
         if (keyData.expires_at && keyData.type !== "Lifetime") {
           const timeLeft = keyData.expires_at - now;
           if (timeLeft > 0 && timeLeft < EXPIRY_WARNING_THRESHOLD && !notifiedUsers.has(userKey)) {
@@ -162,9 +176,10 @@ client.once("ready", async () => {
             notifiedUsers.add(userKey);
           }
         }
+
       } catch (e) {}
     }
-  }, 60 * 1000);
+  }, 60 * 1000); // Lặp lại mỗi phút
 });
 
 // ==========================================
