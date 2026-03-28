@@ -78,7 +78,7 @@ client.once("ready", async () => {
     console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys HỢP LỆ vào bộ nhớ!`);
   }
 
-  // 2. BACKGROUND CHECK (1 Phút / Lần) - LOGIC MỚI SIÊU CHUẨN
+  // 2. BACKGROUND CHECK (1 Phút / Lần) - BẬT CHẾ ĐỘ DEBUG
   setInterval(async () => {
     const currentKeys = await fetchWorker("list");
     if (!currentKeys || !Array.isArray(currentKeys)) return;
@@ -97,25 +97,27 @@ client.once("ready", async () => {
         const member = await guild.members.fetch(discordId).catch(() => null);
         if (!member) continue;
 
-        // ÉP CHỮ VỀ VIẾT THƯỜNG ĐỂ SO SÁNH (Chống trượt điều kiện Ban)
+        // 🔍 IN LOG ĐỂ XEM API THỰC SỰ TRẢ VỀ CÁI GÌ
+        if (member.roles.cache.has(CUSTOMER_ROLE_ID)) {
+            console.log(`[🔍 DEBUG] Đang check ID: ${discordId} | Dữ liệu API trả về:`, JSON.stringify(keyData));
+        }
+
         const status = String(keyData.status || "").toLowerCase();
         const bannedStr = String(keyData.banned || "").toLowerCase();
         
         const isBanned = bannedStr === "true" || keyData.banned === 1 || status === "banned" || keyData.flags >= 5;
         const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
 
-        // ==========================================
-        // TRƯỜNG HỢP 1: BỊ BAN HOẶC HẾT HẠN
-        // ==========================================
         if (isBanned || isExpired) {
-          // 1. Luôn xóa khỏi não bot
           userWhitelist.delete(discordId);
 
-          // 2. NHÌN VÀO THỰC TẾ: Nếu user VẪN CÒN Role Customer -> Tước Role & Nhắn tin
           if (member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-            console.log(`⛔ Thực thi BAN cho ID: ${discordId}`);
+            console.log(`[🚀 THỰC THI] Bắt đầu lột Role của ID: ${discordId}`);
+            
             try {
               await member.roles.remove(CUSTOMER_ROLE_ID);
+              console.log(`[✅ THÀNH CÔNG] Đã lột Role Customer của ${discordId}`);
+              
               if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
                 await member.roles.add(NOT_BUYER_ROLE_ID);
               }
@@ -128,12 +130,15 @@ client.once("ready", async () => {
                   : "Your Zili Hub license has officially expired. Your roles have been removed.")
                 .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
               
-              await member.send({ embeds: [embed] }).catch(() => {});
+              await member.send({ embeds: [embed] })
+                .then(() => console.log(`[✅ THÀNH CÔNG] Đã gửi DM cho ${discordId}`))
+                .catch(err => console.log(`[⚠️ CẢNH BÁO] Không thể gửi DM cho ${discordId} (Họ khóa DM)`));
+
             } catch (e) {
-              console.error(`Lỗi khi tước role của ${discordId}:`, e);
+              console.error(`[❌ LỖI NGHIÊM TRỌNG] Không thể lột Role của ${discordId}. HÃY KIỂM TRA ROLE HIERARCHY TRONG SERVER! Chi tiết lỗi:`, e.message);
             }
           }
-          continue; // Xong việc của đứa bị Ban, check đứa tiếp theo
+          continue; 
         }
 
         // ==========================================
