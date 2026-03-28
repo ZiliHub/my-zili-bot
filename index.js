@@ -72,9 +72,8 @@ client.once("ready", async () => {
     console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys vào bộ nhớ!`);
   }
 
-  // 2. BACKGROUND CHECK (1 Phút / Lần)
+  // 2. BACKGROUND CHECK (1 Phút / Lần) - ĐÃ NÂNG CẤP AUTO-UNBAN
   setInterval(async () => {
-    if (userWhitelist.size === 0) return;
     const currentKeys = await fetchWorker("list");
     if (!currentKeys || !Array.isArray(currentKeys)) return;
 
@@ -82,48 +81,24 @@ client.once("ready", async () => {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return;
 
-    for (const [discordId, userKey] of userWhitelist.entries()) {
-      const keyData = currentKeys.find((k) => k.id === userKey);
+    // Duyệt qua TOÀN BỘ keys từ Database Cloudflare
+    for (const keyData of currentKeys) {
+      if (!keyData.did) continue; // Bỏ qua những key chưa có ai Redeem
+
+      const discordId = keyData.did;
+      const userKey = keyData.id;
 
       try {
         const member = await guild.members.fetch(discordId).catch(() => null);
         if (!member) continue;
 
-        // Bị xóa hoặc Ban
-        if (!keyData || keyData.banned || keyData.flags >= 5) {
-          userWhitelist.delete(discordId);
-          try {
-            await member.roles.remove(CUSTOMER_ROLE_ID);
-            if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
-              await member.roles.add(NOT_BUYER_ROLE_ID);
-            }
-          } catch (e) {}
+        const isBanned = keyData.banned || keyData.flags >= 5;
+        const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
 
-          const banEmbed = new EmbedBuilder()
-            .setColor("#ef4444") // Đỏ
-            .setTitle("⛔ ACCOUNT REVOKED")
-            .setDescription(`Your access to Zili Hub has been removed.\n\n**Reason:** ${!keyData ? "Key deleted by Admin." : "BANNED (Security Violation)."}`)
-            .setFooter({ text: "Zili Hub Automated Security", iconURL: client.user.displayAvatarURL() })
-            .setTimestamp();
-          await member.send({ embeds: [banEmbed] }).catch(() => {});
-          continue;
-        }
-
-        // Hết hạn
-        if (keyData.expires_at && keyData.type !== "Lifetime") {
-          const timeLeft = keyData.expires_at - now;
-
-          if (timeLeft > 0 && timeLeft < EXPIRY_WARNING_THRESHOLD && !notifiedUsers.has(userKey)) {
-            const warnEmbed = new EmbedBuilder()
-              .setColor("#f59e0b") // Cam
-              .setTitle("⏳ EXPIRY WARNING")
-              .setDescription(`Your Zili Hub license (\`||${userKey.substring(0, 8)}...||\`) will expire in less than 24 hours!\n\nPlease prepare to renew.`)
-              .setFooter({ text: "Zili Hub Tracker", iconURL: client.user.displayAvatarURL() });
-            await member.send({ embeds: [warnEmbed] }).catch(() => {});
-            notifiedUsers.add(userKey);
-          }
-
-          if (timeLeft <= 0) {
+        // TRƯỜNG HỢP 1: BỊ BAN HOẶC HẾT HẠN
+        if (isBanned || isExpired) {
+          // Xóa khỏi não và tước Role (Chỉ làm nếu nó ĐANG nằm trong não để tránh spam)
+          if (userWhitelist.has(discordId)) {
             userWhitelist.delete(discordId);
             try {
               await member.roles.remove(CUSTOMER_ROLE_ID);
@@ -132,18 +107,57 @@ client.once("ready", async () => {
               }
             } catch (e) {}
 
-            const expEmbed = new EmbedBuilder()
-              .setColor("#6b7280") // Xám
-              .setTitle("⏰ LICENSE EXPIRED")
-              .setDescription(`Your Zili Hub license has officially expired. Your roles have been removed.`)
+            // Nhắn tin báo tử
+            const embed = new EmbedBuilder()
+              .setColor(isBanned ? "#ef4444" : "#6b7280")
+              .setTitle(isBanned ? "⛔ ACCOUNT REVOKED" : "⏰ LICENSE EXPIRED")
+              .setDescription(isBanned 
+                ? "Your access to Zili Hub has been removed due to a ban/security violation." 
+                : "Your Zili Hub license has officially expired. Your roles have been removed.")
+              .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
+            
+            await member.send({ embeds: [embed] }).catch(() => {});
+          }
+          continue; // Chuyển sang check người tiếp theo
+        }
+
+        // TRƯỜNG HỢP 2: HỢP LỆ NHƯNG KHÔNG CÓ TRONG NÃO (ĐƯỢC UNBAN)
+        if (!userWhitelist.has(discordId)) {
+          console.log(`🔄 Tự động khôi phục cho ID: ${discordId} (Unbanned)`);
+          userWhitelist.set(discordId, userKey); // Nạp lại vào não
+          
+          try {
+            await member.roles.add(CUSTOMER_ROLE_ID);
+            if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
+              await member.roles.remove(NOT_BUYER_ROLE_ID);
+            }
+            
+            // Gửi thư chúc mừng khôi phục
+            const unbanEmbed = new EmbedBuilder()
+              .setColor("#10b981") // Xanh lá
+              .setTitle("✅ ACCOUNT RESTORED")
+              .setDescription("Your appeal was successful. Your access and roles have been restored!\nYou can now use the Zili Hub Panel again.")
+              .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
+            await member.send({ embeds: [unbanEmbed] }).catch(() => {});
+          } catch (e) {}
+        }
+
+        // TRƯỜNG HỢP 3: SẮP HẾT HẠN (CẢNH BÁO)
+        if (keyData.expires_at && keyData.type !== "Lifetime") {
+          const timeLeft = keyData.expires_at - now;
+          if (timeLeft > 0 && timeLeft < EXPIRY_WARNING_THRESHOLD && !notifiedUsers.has(userKey)) {
+            const warnEmbed = new EmbedBuilder()
+              .setColor("#f59e0b")
+              .setTitle("⏳ EXPIRY WARNING")
+              .setDescription(`Your Zili Hub license (\`||${userKey.substring(0, 8)}...||\`) will expire in less than 24 hours!`)
               .setFooter({ text: "Zili Hub Tracker", iconURL: client.user.displayAvatarURL() });
-            await member.send({ embeds: [expEmbed] }).catch(() => {});
+            await member.send({ embeds: [warnEmbed] }).catch(() => {});
+            notifiedUsers.add(userKey);
           }
         }
       } catch (e) {}
     }
   }, 60 * 1000);
-});
 
 // ==========================================
 // 🖥️ UI SETUP COMMAND
