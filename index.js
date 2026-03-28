@@ -62,17 +62,23 @@ client.once("ready", async () => {
   console.log(`✅ Enterprise Security Bot Online: ${client.user.tag}`);
   client.user.setActivity("System Security", { type: 3 });
 
-  // 1. ĐỒNG BỘ DỮ LIỆU TỪ CLOUDFLARE KHI KHỞI ĐỘNG
+  // 1. ĐỒNG BỘ DỮ LIỆU TỪ CLOUDFLARE KHI KHỞI ĐỘNG (ĐÃ FIX LỖI BAN)
   console.log("🔄 Đang đồng bộ dữ liệu khách hàng...");
   const keys = await fetchWorker("list");
   if (keys && Array.isArray(keys)) {
     keys.forEach((k) => {
-      if (k.did) userWhitelist.set(k.did, k.id);
+      // Bắt chặt mọi trường hợp định dạng API trả về khi bị Ban
+      const isBanned = k.banned === true || k.banned === "true" || k.status === "Banned" || k.status === "banned" || k.flags >= 5;
+      
+      // Chỉ nạp vào não những người CÓ ID và KHÔNG BỊ BAN
+      if (k.did && !isBanned) {
+        userWhitelist.set(k.did, k.id);
+      }
     });
-    console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys vào bộ nhớ!`);
+    console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys HỢP LỆ vào bộ nhớ!`);
   }
 
-  // 2. BACKGROUND CHECK (1 Phút / Lần) - ĐÃ NÂNG CẤP AUTO-UNBAN
+  // 2. BACKGROUND CHECK (1 Phút / Lần)
   setInterval(async () => {
     const currentKeys = await fetchWorker("list");
     if (!currentKeys || !Array.isArray(currentKeys)) return;
@@ -92,12 +98,12 @@ client.once("ready", async () => {
         const member = await guild.members.fetch(discordId).catch(() => null);
         if (!member) continue;
 
-        const isBanned = keyData.banned || keyData.flags >= 5;
+        // Bắt chặt trạng thái Ban giống như lúc Boot
+        const isBanned = keyData.banned === true || keyData.banned === "true" || keyData.status === "Banned" || keyData.status === "banned" || keyData.flags >= 5;
         const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
 
         // TRƯỜNG HỢP 1: BỊ BAN HOẶC HẾT HẠN
         if (isBanned || isExpired) {
-          // Xóa khỏi não và tước Role (Chỉ làm nếu nó ĐANG nằm trong não để tránh spam)
           if (userWhitelist.has(discordId)) {
             userWhitelist.delete(discordId);
             try {
@@ -112,13 +118,13 @@ client.once("ready", async () => {
               .setColor(isBanned ? "#ef4444" : "#6b7280")
               .setTitle(isBanned ? "⛔ ACCOUNT REVOKED" : "⏰ LICENSE EXPIRED")
               .setDescription(isBanned 
-                ? "Your access to Zili Hub has been removed due to a ban/security violation." 
+                ? "Your access to Zili Hub has been permanently revoked due to a security violation or manual ban." 
                 : "Your Zili Hub license has officially expired. Your roles have been removed.")
               .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
             
             await member.send({ embeds: [embed] }).catch(() => {});
           }
-          continue; // Chuyển sang check người tiếp theo
+          continue; // Bỏ qua người này, đi check người tiếp theo
         }
 
         // TRƯỜNG HỢP 2: HỢP LỆ NHƯNG KHÔNG CÓ TRONG NÃO (ĐƯỢC UNBAN)
@@ -132,12 +138,13 @@ client.once("ready", async () => {
               await member.roles.remove(NOT_BUYER_ROLE_ID);
             }
             
-            // Gửi thư chúc mừng khôi phục
+            // THÊM: Gửi thư thông báo UNBAN xanh lá bằng Tiếng Anh
             const unbanEmbed = new EmbedBuilder()
-              .setColor("#10b981") // Xanh lá
+              .setColor("#10b981") // Màu xanh lá
               .setTitle("✅ ACCOUNT RESTORED")
-              .setDescription("Your appeal was successful. Your access and roles have been restored!\nYou can now use the Zili Hub Panel again.")
-              .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
+              .setDescription("Great news! Your appeal was successful and your ban has been lifted.\n\nYour access and **Customer** roles have been fully restored. You can now return to the server and use the panel to get your script again.")
+              .setFooter({ text: "Zili Hub Support Team", iconURL: client.user.displayAvatarURL() })
+              .setTimestamp();
             await member.send({ embeds: [unbanEmbed] }).catch(() => {});
           } catch (e) {}
         }
@@ -167,7 +174,7 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (message.content === "!setup") {
     const embed = new EmbedBuilder()
-      .setColor("#8b5cf6") // Tím mộng mơ
+      .setColor("#8b5cf6")
       .setAuthor({ name: "ZILI HUB | ENTERPRISE SECURITY", iconURL: client.user.displayAvatarURL() })
       .setDescription("Welcome to the **Zili Hub Control Panel**. \nThis system is protected by our Anti-Tamper Engine.\n\n*Please select an option below to manage your access.*")
       .setImage("https://cdn.discordapp.com/attachments/1482474210243907747/1486798757734645832/0f77b7f8-7648-4aa3-bf67-545da725301a.webp")
@@ -242,7 +249,7 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({ text: "Auto-deletes in 2 minutes for security.", iconURL: client.user.displayAvatarURL() });
 
       await interaction.reply({ embeds: [scriptEmbed], ephemeral: true });
-      setTimeout(() => interaction.deleteReply().catch(() => {}), 120000); // Xóa sau 2 phút
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 120000);
       return;
     } 
     
@@ -261,11 +268,11 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       await interaction.editReply({ embeds: [hwidEmbed] });
-      setTimeout(() => interaction.deleteReply().catch(() => {}), 30000); // Xóa sau 30s
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
       return;
     } 
     
-    // --- NÚT 4: STATUS TRACKER ---
+    // --- NÚT 4: STATUS TRACKER (ĐÃ THÊM MỤC ROLE) ---
     else if (interaction.customId === "btn_status") {
       await interaction.deferReply({ ephemeral: true });
       const data = await fetchWorker("get", { target: userKey });
@@ -276,6 +283,12 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
+      // THÊM: Quét các Role của user trong server để hiển thị
+      const userRoles = interaction.member.roles.cache
+        .filter(role => role.name !== "@everyone")
+        .map(role => `<@&${role.id}>`)
+        .join(", ") || "No Roles";
+
       const statusEmbed = new EmbedBuilder()
         .setColor("#8b5cf6")
         .setAuthor({ name: `${interaction.user.username}'s License Tracker`, iconURL: interaction.user.displayAvatarURL() })
@@ -283,12 +296,13 @@ client.on("interactionCreate", async (interaction) => {
           { name: "🔑 License Key", value: `\`||${data.id.substring(0, 12)}...||\``, inline: false },
           { name: "🏷️ Plan Type", value: `**${data.type}**`, inline: true },
           { name: "🔄 HWID Resets", value: `**${data.reset_count || 0}/5** (Daily)`, inline: true },
+          { name: "🎭 Discord Role", value: userRoles, inline: false }, // Mục hiển thị Role mới
           { name: "⏰ Expiry Date", value: data.type === "Lifetime" ? "Never (Lifetime)" : `<t:${Math.floor(data.expires_at / 1000)}:F>\n(<t:${Math.floor(data.expires_at / 1000)}:R>)`, inline: false }
         )
         .setFooter({ text: "Auto-deletes in 30 seconds." });
 
       await interaction.editReply({ embeds: [statusEmbed] });
-      setTimeout(() => interaction.deleteReply().catch(() => {}), 30000); // Xóa sau 30s
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
       return;
     }
   }
