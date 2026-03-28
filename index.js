@@ -121,7 +121,7 @@ client.once("ready", async () => {
             const warnEmbed = new EmbedBuilder()
               .setColor("#f59e0b") // Cam
               .setTitle("⏳ EXPIRY WARNING")
-              .setDescription(`Your Zili Hub license (\`||${userKey.substring(0, 8)}...||\`) will expire in less than 24 hours!\n\nPlease prepare to renew.`)
+              .setDescription(`Your Zili Hub license (\`||${userKey}||\`) will expire in less than 24 hours!\n\nPlease prepare to renew.`)
               .setFooter({ text: "Zili Hub Tracker", iconURL: client.user.displayAvatarURL() });
             await member.send({ embeds: [warnEmbed] }).catch(() => {});
             notifiedUsers.add(userKey);
@@ -188,7 +188,7 @@ client.on("interactionCreate", async (interaction) => {
       if (userKey) {
         const alreadyEmbed = new EmbedBuilder()
           .setColor("#10b981")
-          .setDescription(`✅ You are already linked to an active key: \`||${userKey.substring(0, 8)}...||\`\nNo need to redeem again.`);
+          .setDescription(`✅ You are already linked to an active key: \`||${userKey}||\`\nNo need to redeem again.`);
         await interaction.reply({ embeds: [alreadyEmbed], ephemeral: true });
         setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
         return;
@@ -225,9 +225,9 @@ client.on("interactionCreate", async (interaction) => {
         .setAuthor({ name: "Secure Loader Generated", iconURL: interaction.user.displayAvatarURL() })
         .setDescription("Copy the script below and paste it into your executor.\n⚠️ *This loader is heavily obfuscated and locked to your HWID.*")
         .addFields({
-          name: "Inject Script (Click to reveal)",
-          // Thêm || bao bọc xung quanh khối code để tạo hiệu ứng spoiler che đen toàn bộ
-          value: `||\`\`\`lua\n_G.ZiLi_Key = "${userKey}";\nloadstring(game:HttpGet("https://${WORKER_URL.replace("https://", "")}/loader"))()\n\`\`\`||`,
+          name: "Inject Script",
+          // Đã bỏ lớp che đen (spoiler) ở đây để copy dễ dàng
+          value: `\`\`\`lua\n_G.ZiLi_Key = "${userKey}";\nloadstring(game:HttpGet("https://${WORKER_URL.replace("https://", "")}/loader"))()\n\`\`\``,
         })
         .setFooter({ text: "Auto-deletes in 2 minutes for security.", iconURL: client.user.displayAvatarURL() });
 
@@ -276,7 +276,7 @@ client.on("interactionCreate", async (interaction) => {
         .setColor("#8b5cf6")
         .setAuthor({ name: `${interaction.user.username}'s License Tracker`, iconURL: interaction.user.displayAvatarURL() })
         .addFields(
-          // Trả full key và bọc trong Spoiler Tag
+          // Trả full key và bọc trong Spoiler Tag (Nhấn vào sẽ hiện đủ 32 ký tự)
           { name: "🔑 License Key", value: `||${data.id}||`, inline: false },
           { name: "🏷️ Plan Type", value: `**${data.type}**`, inline: true },
           { name: "🔄 HWID Resets", value: `**${data.reset_count || 0}/5** (Daily)`, inline: true },
