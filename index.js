@@ -62,23 +62,24 @@ client.once("ready", async () => {
   console.log(`✅ Enterprise Security Bot Online: ${client.user.tag}`);
   client.user.setActivity("System Security", { type: 3 });
 
-  // 1. ĐỒNG BỘ DỮ LIỆU TỪ CLOUDFLARE KHI KHỞI ĐỘNG (ĐÃ FIX LỖI BAN)
+  // 1. KHI KHỞI ĐỘNG: CHỈ NẠP NGƯỜI DÙNG HỢP LỆ (KHÔNG BAN, KHÔNG HẾT HẠN)
   console.log("🔄 Đang đồng bộ dữ liệu khách hàng...");
   const keys = await fetchWorker("list");
   if (keys && Array.isArray(keys)) {
     keys.forEach((k) => {
-      // Bắt chặt mọi trường hợp định dạng API trả về khi bị Ban
-      const isBanned = k.banned === true || k.banned === "true" || k.status === "Banned" || k.status === "banned" || k.flags >= 5;
-      
-      // Chỉ nạp vào não những người CÓ ID và KHÔNG BỊ BAN
-      if (k.did && !isBanned) {
+      const status = String(k.status || "").toLowerCase();
+      const bannedStr = String(k.banned || "").toLowerCase();
+      const isBanned = bannedStr === "true" || k.banned === 1 || status === "banned" || k.flags >= 5;
+      const isExpired = k.expires_at && k.type !== "Lifetime" && k.expires_at <= Date.now();
+
+      if (k.did && !isBanned && !isExpired) {
         userWhitelist.set(k.did, k.id);
       }
     });
     console.log(`✅ Đã nạp thành công ${userWhitelist.size} keys HỢP LỆ vào bộ nhớ!`);
   }
 
-  // 2. BACKGROUND CHECK (1 Phút / Lần) - BẬT CHẾ ĐỘ DEBUG
+  // 2. BACKGROUND CHECK (1 Phút / Lần) - CHỈ QUÉT VÀ TRỪNG PHẠT
   setInterval(async () => {
     const currentKeys = await fetchWorker("list");
     if (!currentKeys || !Array.isArray(currentKeys)) return;
@@ -93,35 +94,33 @@ client.once("ready", async () => {
       const discordId = keyData.did;
       const userKey = keyData.id;
 
+      // Chuẩn hóa check trạng thái
+      const status = String(keyData.status || "").toLowerCase();
+      const bannedStr = String(keyData.banned || "").toLowerCase();
+      const isBanned = bannedStr === "true" || keyData.banned === 1 || status === "banned" || keyData.flags >= 5;
+      const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
+
       try {
         const member = await guild.members.fetch(discordId).catch(() => null);
         if (!member) continue;
 
-        // 🔍 IN LOG ĐỂ XEM API THỰC SỰ TRẢ VỀ CÁI GÌ
-        if (member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-            console.log(`[🔍 DEBUG] Đang check ID: ${discordId} | Dữ liệu API trả về:`, JSON.stringify(keyData));
-        }
-
-        const status = String(keyData.status || "").toLowerCase();
-        const bannedStr = String(keyData.banned || "").toLowerCase();
-        
-        const isBanned = bannedStr === "true" || keyData.banned === 1 || status === "banned" || keyData.flags >= 5;
-        const isExpired = keyData.expires_at && keyData.type !== "Lifetime" && keyData.expires_at <= now;
-
+        // NẾU BỊ BAN HOẶC HẾT HẠN
         if (isBanned || isExpired) {
-          userWhitelist.delete(discordId);
+          // Xóa ngay khỏi não (nếu có)
+          if (userWhitelist.has(discordId)) {
+            userWhitelist.delete(discordId);
+          }
 
+          // Kiểm tra xem nó còn cầm Role không, nếu CÒN thì lột!
           if (member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-            console.log(`[🚀 THỰC THI] Bắt đầu lột Role của ID: ${discordId}`);
-            
+            console.log(`⛔ Tiến hành lột Role của ID: ${discordId} (Banned/Expired)`);
             try {
               await member.roles.remove(CUSTOMER_ROLE_ID);
-              console.log(`[✅ THÀNH CÔNG] Đã lột Role Customer của ${discordId}`);
-              
               if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
                 await member.roles.add(NOT_BUYER_ROLE_ID);
               }
 
+              // Gửi tin nhắn báo tử
               const embed = new EmbedBuilder()
                 .setColor(isBanned ? "#ef4444" : "#6b7280")
                 .setTitle(isBanned ? "⛔ ACCOUNT REVOKED" : "⏰ LICENSE EXPIRED")
@@ -130,46 +129,14 @@ client.once("ready", async () => {
                   : "Your Zili Hub license has officially expired. Your roles have been removed.")
                 .setFooter({ text: "Zili Hub Security", iconURL: client.user.displayAvatarURL() });
               
-              await member.send({ embeds: [embed] })
-                .then(() => console.log(`[✅ THÀNH CÔNG] Đã gửi DM cho ${discordId}`))
-                .catch(err => console.log(`[⚠️ CẢNH BÁO] Không thể gửi DM cho ${discordId} (Họ khóa DM)`));
-
+              await member.send({ embeds: [embed] }).catch(() => {});
             } catch (e) {
-              console.error(`[❌ LỖI NGHIÊM TRỌNG] Không thể lột Role của ${discordId}. HÃY KIỂM TRA ROLE HIERARCHY TRONG SERVER! Chi tiết lỗi:`, e.message);
+              console.log(`❌ Lỗi: Không thể lột Role. (HÃY KÉO ROLE CỦA BOT LÊN TRÊN ROLE CUSTOMER)`);
             }
           }
-          continue; 
-        }
-
-        // ==========================================
-        // TRƯỜNG HỢP 2: HỢP LỆ (UNBAN HOẶC ĐANG XÀI BÌNH THƯỜNG)
-        // ==========================================
-        // Cập nhật lại vào não
-        userWhitelist.set(discordId, userKey); 
-
-        // Nếu user HỢP LỆ nhưng lại KHÔNG CÓ Role Customer (tức là vừa được Unban)
-        if (!member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-          console.log(`✅ Khôi phục quyền (UNBAN) cho ID: ${discordId}`);
-          try {
-            await member.roles.add(CUSTOMER_ROLE_ID);
-            if (NOT_BUYER_ROLE_ID !== "YOUR_NOT_BUYER_ROLE_ID_HERE") {
-              await member.roles.remove(NOT_BUYER_ROLE_ID);
-            }
-            
-            const unbanEmbed = new EmbedBuilder()
-              .setColor("#10b981")
-              .setTitle("✅ ACCOUNT RESTORED")
-              .setDescription("Great news! Your appeal was successful and your ban has been lifted.\n\nYour access and **Customer** roles have been fully restored. You can now return to the server and use the panel to get your script again.")
-              .setFooter({ text: "Zili Hub Support Team", iconURL: client.user.displayAvatarURL() })
-              .setTimestamp();
-            await member.send({ embeds: [unbanEmbed] }).catch(() => {});
-          } catch (e) {}
-        }
-
-        // ==========================================
-        // TRƯỜNG HỢP 3: CẢNH BÁO SẮP HẾT HẠN
-        // ==========================================
-        if (keyData.expires_at && keyData.type !== "Lifetime") {
+        } 
+        // NẾU HỢP LỆ VÀ SẮP HẾT HẠN (Cảnh báo 24h)
+        else if (keyData.expires_at && keyData.type !== "Lifetime") {
           const timeLeft = keyData.expires_at - now;
           if (timeLeft > 0 && timeLeft < EXPIRY_WARNING_THRESHOLD && !notifiedUsers.has(userKey)) {
             const warnEmbed = new EmbedBuilder()
@@ -181,10 +148,9 @@ client.once("ready", async () => {
             notifiedUsers.add(userKey);
           }
         }
-
       } catch (e) {}
     }
-  }, 60 * 1000); // Lặp lại mỗi phút
+  }, 60 * 1000);
 });
 
 // ==========================================
@@ -292,7 +258,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     } 
     
-    // --- NÚT 4: STATUS TRACKER (ĐÃ THÊM MỤC ROLE) ---
+    // --- NÚT 4: STATUS TRACKER ---
     else if (interaction.customId === "btn_status") {
       await interaction.deferReply({ ephemeral: true });
       const data = await fetchWorker("get", { target: userKey });
@@ -303,7 +269,6 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // THÊM: Quét các Role của user trong server để hiển thị
       const userRoles = interaction.member.roles.cache
         .filter(role => role.name !== "@everyone")
         .map(role => `<@&${role.id}>`)
@@ -316,7 +281,7 @@ client.on("interactionCreate", async (interaction) => {
           { name: "🔑 License Key", value: `\`||${data.id.substring(0, 12)}...||\``, inline: false },
           { name: "🏷️ Plan Type", value: `**${data.type}**`, inline: true },
           { name: "🔄 HWID Resets", value: `**${data.reset_count || 0}/5** (Daily)`, inline: true },
-          { name: "🎭 Discord Role", value: userRoles, inline: false }, // Mục hiển thị Role mới
+          { name: "🎭 Discord Role", value: userRoles, inline: false },
           { name: "⏰ Expiry Date", value: data.type === "Lifetime" ? "Never (Lifetime)" : `<t:${Math.floor(data.expires_at / 1000)}:F>\n(<t:${Math.floor(data.expires_at / 1000)}:R>)`, inline: false }
         )
         .setFooter({ text: "Auto-deletes in 30 seconds." });
@@ -328,7 +293,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // ==========================================
-  // 📝 MODAL SUBMIT (XỬ LÝ KEY)
+  // 📝 MODAL SUBMIT (XỬ LÝ KEY KHI REDEEM / UNBAN LẠI)
   // ==========================================
   if (interaction.isModalSubmit() && interaction.customId === "modal_redeem") {
     await interaction.deferReply({ ephemeral: true });
@@ -348,7 +313,6 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // Add Role thành công
     try {
       const member = interaction.member;
       if (member) {
@@ -361,7 +325,6 @@ client.on("interactionCreate", async (interaction) => {
       console.error("Lỗi khi cấp Role:", error);
     }
 
-    // Nạp vào não bot
     userWhitelist.set(discordId, inputKey);
 
     const successEmbed = new EmbedBuilder()
