@@ -1,18 +1,8 @@
 const {
-  Client,
-  GatewayIntentBits,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  EmbedBuilder,
-  StringSelectMenuBuilder,
-  Events
+  Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, Events
 } = require('discord.js');
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
-});
-
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const API_URL = "https://temp.hackgpo59.workers.dev/";
 
 const executors = {
@@ -25,57 +15,37 @@ const executors = {
   "wave": { name: "Wave", platform: "🖥 PC", base: "🟡 LIMITED", baseScore: 75 }
 };
 
-// 🌟 PROGRESS BAR GENERATOR
 function createProgressBar(percent) {
-  const totalBlocks = 10;
-  const filledBlocks = Math.round((percent / 100) * totalBlocks);
-  const emptyBlocks = totalBlocks - filledBlocks;
-  return `**\`[${'█'.repeat(filledBlocks)}${'░'.repeat(emptyBlocks)}]\`**`;
+  const filled = Math.round((percent / 100) * 10);
+  return `**\`[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}]\`**`;
 }
 
-// 📥 SEND VOTE (Fixed to return API response for cooldown handling)
 async function sendVote(name, type, user) {
   try {
     const res = await fetch(API_URL + "vote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, type, user })
     });
-    return await res.json(); // Returns { success: true/false, error: "..." }
+    return await res.json(); 
   } catch (e) {
-    console.log("Vote error:", e.message);
-    return { success: false, error: "Failed to connect to the database." };
+    return { success: false, error: "Could not connect to the server." };
   }
 }
 
-// 📊 GET STATS
 async function getStats(name) {
-  try {
-    const res = await fetch(API_URL + "stats/" + name);
-    return await res.json();
-  } catch {
-    return null;
-  }
+  try { return await (await fetch(API_URL + "stats/" + name)).json(); } catch { return null; }
 }
 
-// 🏆 GET LEADERBOARD
 async function getLeaderboard() {
-  try {
-    const res = await fetch(API_URL + "leaderboard");
-    return await res.json();
-  } catch {
-    return [];
-  }
+  try { return await (await fetch(API_URL + "leaderboard")).json(); } catch { return []; }
 }
 
-// 🚀 READY & SEND MAIN MESSAGE
 client.once("ready", async () => {
   console.log(`✅ Bot ${client.user.tag} is online!`);
 
   const channel = await client.channels.fetch("1488456249900142645").catch(() => null);
-  if (!channel) return console.log("❌ Could not find the specified channel!");
+  if (!channel) return console.log("❌ Could not find the channel!");
 
-  // Main UI Buttons
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("btn_panel").setLabel("📊 Status Panel").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("btn_lb").setLabel("🏆 Leaderboard").setStyle(ButtonStyle.Success),
@@ -84,38 +54,32 @@ client.once("ready", async () => {
 
   const mainEmbed = new EmbedBuilder()
     .setTitle("🚀 EXECUTOR SYSTEM HUB")
-    .setDescription("Welcome to the **Executor Status Hub**!\n\n**Instructions:**\n\n> 📊 **Status Panel:** View detailed, real-time status of all Executors (sorted by top rating).\n> 🏆 **Leaderboard:** Check the current top-ranked Executors based on community trust.\n> 🗳️ **Vote Executor:** Rate your favorite Executor (Good, Normal, Bad).\n> \n> All interactions are private (only you can see them).")
-    .setColor("#2b2d31")
-    .setImage("https://i.imgur.com/K9t6d5m.png") // Banner image
+    .setDescription("Welcome to the Executor Status Hub!\n\n**📖 INSTRUCTIONS:**\n> **1️⃣ 📊 Status Panel:** View the current operational status of all Executors (Sorted with the best-rated apps at the top).\n> **2️⃣ 🏆 Leaderboard:** Check the community trust ranking based on votes.\n> **3️⃣ 🗳️ Vote Executor:** Rate the Executor you are using (Good/Normal/Bad) to help others. Cooldown is 24h/vote.\n\n*Note: To prevent spam, data panels will auto-delete after 20 seconds.*")
+    .setColor("#ff88aa") 
+    // REPLACE WITH YOUR IMAGE URL
+    .setImage("https://i.imgur.com/K9t6d5m.png") 
     .setFooter({ text: "System Auto-Updating", iconURL: client.user.displayAvatarURL() })
     .setTimestamp();
 
   await channel.send({ embeds: [mainEmbed], components: [row] });
 });
 
-// 🎮 INTERACTION HANDLER
 client.on(Events.InteractionCreate, async interaction => {
-
-  // ================= BUTTON HANDLERS =================
   if (interaction.isButton()) {
 
     // 1️⃣ PANEL BUTTON
     if (interaction.customId === "btn_panel") {
       await interaction.deferReply({ ephemeral: true });
 
-      // Embed color updated to darker theme
       const embed = new EmbedBuilder()
-        .setTitle("📊 Live Executor Status (Top Rated First)")
-        .setDescription("Current status of Executors based on API data and user votes.")
-        .setColor("#2b2d31")
-        .setTimestamp();
+        .setTitle("📊 Current Executor Status")
+        .setDescription("Displaying the list, prioritizing Executors with the highest scores at the top. *(Auto-deletes in 20s)*")
+        .setColor("#ff88aa");
 
-      // Collect data, compute scores, and sort
-      let allExecutors = [];
+      let allData = [];
       for (let key in executors) {
         const ex = executors[key];
         let stats = await getStats(key);
-
         let status = ex.base;
         let percent = ex.baseScore;
 
@@ -123,20 +87,16 @@ client.on(Events.InteractionCreate, async interaction => {
           status = stats.status;
           percent = stats.percent;
         }
-
-        allExecutors.push({ key, ex, status, percent });
+        allData.push({ key, ex, status, percent });
       }
 
-      // Sort reduced array by percent (Good vote %) descending
-      allExecutors.sort((a, b) => b.percent - a.percent);
+      // Sort: Highest score first
+      allData.sort((a, b) => b.percent - a.percent);
 
-      let mobileText = "";
-      let pcText = "";
-
-      allExecutors.forEach(({ ex, status, percent }) => {
+      let mobileText = "", pcText = "";
+      allData.forEach(({ ex, status, percent }) => {
         const bar = createProgressBar(percent);
         const line = `> **${ex.name}**\n> Status: ${status} \n> Score: ${bar} **${percent}%**\n\n`;
-
         if (ex.platform.includes("Mobile")) mobileText += line;
         else pcText += line;
       });
@@ -146,7 +106,9 @@ client.on(Events.InteractionCreate, async interaction => {
         { name: "🖥️ PC EXECUTORS", value: pcText || "Updating..." }
       );
 
-      return interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
+      // 🕒 AUTO-DELETE AFTER 20 SECONDS
+      return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
     }
 
     // 2️⃣ LEADERBOARD BUTTON
@@ -155,24 +117,17 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const data = await getLeaderboard();
       const embed = new EmbedBuilder()
-        .setTitle("🏆 Top Executors Leaderboard")
-        .setDescription("Ranking based on user trust scores.")
+        .setTitle("🏆 Community Leaderboard")
+        .setDescription("Top most trusted Executors based on votes. *(Auto-deletes in 20s)*")
         .setColor("#ffcc00");
 
-      let mobileText = "";
-      let pcText = "";
-
+      let mobileText = "", pcText = "";
       data.forEach((e, i) => {
         const exConfig = executors[e.name.toLowerCase()];
         if (!exConfig) return;
 
-        let rankIcon = "🏅";
-        if (i === 0) rankIcon = "🥇";
-        else if (i === 1) rankIcon = "🥈";
-        else if (i === 2) rankIcon = "🥉";
-
-        const bar = createProgressBar(e.score);
-        const line = `**${rankIcon} ${exConfig.name}**\n${bar} **${e.score}%**\n\n`;
+        let rankIcon = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "🏅";
+        const line = `**${rankIcon} ${exConfig.name}**\n${createProgressBar(e.score)} **${e.score}%**\n\n`;
 
         if (exConfig.platform.includes("Mobile")) mobileText += line;
         else pcText += line;
@@ -183,124 +138,80 @@ client.on(Events.InteractionCreate, async interaction => {
         { name: "🖥️ TOP PC", value: pcText || "No data yet" }
       );
 
-      return interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
+      // 🕒 AUTO-DELETE AFTER 20 SECONDS
+      return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
     }
 
-    // 3️⃣ VOTE START BUTTON (Opens dropdown)
+    // 3️⃣ VOTE START BUTTON
     if (interaction.customId === "btn_vote_start") {
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId("select_vote_executor")
         .setPlaceholder("Click here to select an Executor...")
-        .addOptions(
-          Object.keys(executors).map(key => ({
+        .addOptions(Object.keys(executors).map(key => ({
             label: executors[key].name,
             description: `Platform: ${executors[key].platform}`,
             value: key,
             emoji: executors[key].platform.includes("Mobile") ? "📱" : "🖥️"
-          }))
-        );
+        })));
 
-      const row = new ActionRowBuilder().addComponents(selectMenu);
-
-      return interaction.reply({
-        content: "🗳️ **Which Executor would you like to vote for?**\nPlease select from the menu below:",
-        components: [row],
+      await interaction.reply({
+        content: "🗳️ **Which Executor do you want to vote for?**\nPlease select from the menu below *(Menu auto-deletes in 20s)*:",
+        components: [new ActionRowBuilder().addComponents(selectMenu)],
         ephemeral: true
       });
+      
+      // 🕒 AUTO-DELETE AFTER 20 SECONDS
+      return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
     }
 
-    // 4️⃣ HANDLE GOOD/NORMAL/BAD VOTES
+    // 4️⃣ SEND VOTE (GOOD/NORMAL/BAD)
     if (interaction.customId.startsWith("vote_")) {
-      const parts = interaction.customId.split("_"); 
-      const type = parts[1]; // good, normal, bad
-      const name = parts[2]; // delta, arceus x...
-
+      const [, type, name] = interaction.customId.split("_"); 
       await interaction.deferUpdate();
 
-      // Get the response from the API
       const response = await sendVote(name, type, interaction.user.id);
 
-      // Check for 12h cooldown or errors
       if (!response || !response.success) {
         const errorEmbed = new EmbedBuilder()
-          .setTitle("⏳ Cooldown / Error")
-          .setDescription(response?.error || "An unknown error occurred. Please try again later.")
+          .setTitle("⚠️ Error / Cooldown")
+          .setDescription(response?.error || "Unknown error.")
           .setColor("#ff3333");
 
-        return interaction.editReply({
-          content: null,
-          embeds: [errorEmbed],
-          components: []
-        });
+        await interaction.editReply({ content: null, embeds: [errorEmbed], components: [] });
+        return setTimeout(() => interaction.deleteReply().catch(() => {}), 15000); // Errors delete in 15s
       }
 
-      // Success
       const successEmbed = new EmbedBuilder()
-        .setTitle("✅ Vote Recorded!")
-        .setDescription(`Thank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n\n*Note: This message will automatically disappear in 15 seconds.*`)
-        .setColor("#00ff99");
+        .setTitle("✅ Vote Successful!")
+        .setDescription(`Thank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n\n*(This message will auto-delete in 15 seconds)*`)
+        .setColor("#ff88aa");
 
-      // Store the reply interaction reference to clear it later
-      const reply = await interaction.editReply({
-        content: null,
-        embeds: [successEmbed],
-        components: [] 
-      });
-
-      // 🕒 AUTO DELETE: Simulate clearing components/content after 15 seconds
-      setTimeout(() => {
-        const clearedEmbed = new EmbedBuilder()
-          .setTitle("✅ Vote Recorded (Closed)")
-          .setDescription(`Your vote for **${executors[name].name}** was successfully recorded. The active voting panel has closed. You can vote for another Executor or view status from the main hub.`)
-          .setColor("#333333");
-
-        interaction.editReply({
-          embeds: [clearedEmbed],
-          components: [] // Make sure components stay empty
-        }).catch(() => null); // Ignore errors if message deleted
-      }, 15000); // 15 seconds
-
-      return reply;
+      await interaction.editReply({ content: null, embeds: [successEmbed], components: [] });
+      // 🕒 AUTO-DELETE AFTER 15 SECONDS
+      return setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
     }
   }
 
-  // ================= SELECT MENU HANDLER =================
-  if (interaction.isStringSelectMenu()) {
+  // ================= EXECUTOR SELECTION MENU =================
+  if (interaction.isStringSelectMenu() && interaction.customId === "select_vote_executor") {
+    const key = interaction.values[0];
+    const exName = executors[key].name;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vote_good_${key}`).setLabel("Working (Good)").setEmoji("🟢").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`vote_normal_${key}`).setLabel("Issues (Normal)").setEmoji("🟡").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`vote_bad_${key}`).setLabel("Patched/Ban (Bad)").setEmoji("🔴").setStyle(ButtonStyle.Danger)
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🗳️ Rate: ${exName}`)
+      .setDescription(`What is the current status of **${exName}**?\n\n🟢 **Good**: Scripts run smoothly.\n🟡 **Normal**: Crashing, minor bugs.\n🔴 **Bad**: Completely patched, causes bans.\n\n*(This panel will auto-delete in 20s)*`)
+      .setColor("#ffcc00");
+
+    await interaction.update({ content: null, embeds: [embed], components: [row] });
     
-    // EXECUTOR SELECTED FROM MENU
-    if (interaction.customId === "select_vote_executor") {
-      const selectedExecutorKey = interaction.values[0];
-      const exName = executors[selectedExecutorKey].name;
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`vote_good_${selectedExecutorKey}`)
-          .setLabel("Working (Good)")
-          .setEmoji("🟢")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`vote_normal_${selectedExecutorKey}`)
-          .setLabel("Issues (Normal)")
-          .setEmoji("🟡")
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`vote_bad_${selectedExecutorKey}`)
-          .setLabel("Patched/Ban (Bad)")
-          .setEmoji("🔴")
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      const embed = new EmbedBuilder()
-        .setTitle(`🗳️ Rate: ${exName}`)
-        .setDescription(`How is the current status of **${exName}**?\n\n🟢 **Good**: Scripts run smoothly.\n🟡 **Normal**: Crashing, minor bugs, or annoying key system.\n🔴 **Bad**: Completely patched or causes bans.`)
-        .setColor("#ffcc00");
-
-      return interaction.update({
-        content: null,
-        embeds: [embed],
-        components: [row]
-      });
-    }
+    // Note: Update doesn't need a new delete timeout as it's tied to the one created by the Vote Start button.
   }
 });
 
