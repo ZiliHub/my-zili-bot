@@ -1,3 +1,4 @@
+require('dotenv').config(); // Thêm dòng này để nạp biến môi trường nếu chạy local
 const {
   Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, Events
 } = require('discord.js');
@@ -48,7 +49,7 @@ function getDynamicColor(score, total) {
   return "#ff3333"; 
 }
 
-// 📊 GRADIENT PROPORTION BAR (10 Blocks, Mix Colors based on Good/Normal/Bad)
+// 📊 GRADIENT PROPORTION BAR (10 Blocks)
 function createProportionBar(good, normal, bad, total) {
   if (total === 0) return "⬛".repeat(10);
   
@@ -56,7 +57,6 @@ function createProportionBar(good, normal, bad, total) {
   let n = Math.round((normal / total) * 10);
   let b = Math.round((bad / total) * 10);
 
-  // Fix rounding issues to always equal exactly 10 blocks
   const diff = 10 - (g + n + b);
   if (diff !== 0) {
     const max = Math.max(g, n, b);
@@ -69,7 +69,7 @@ function createProportionBar(good, normal, bad, total) {
   return `${"🟩".repeat(g)}${"🟨".repeat(n)}${"🟥".repeat(b)}`;
 }
 
-// 🧹 HELPER: XÓA TIN NHẮN GỌN GÀNG (Tối ưu code)
+// 🧹 HELPER: XÓA TIN NHẮN
 const autoDelete = (interaction, ms = 20000) => {
   setTimeout(() => interaction.deleteReply().catch(() => {}), ms);
 };
@@ -96,7 +96,7 @@ client.once("ready", async () => {
     .setTitle("🚀 EXECUTOR SYSTEM HUB")
     .setDescription("Welcome to the Executor Status Hub!\n\n**📖 INSTRUCTIONS:**\n> **1️⃣ 🗳️ Vote Executor:** Rate the Executor you are using (Cooldown is 24h/vote).\n> **2️⃣ 📊 Status Panel:** View the current operational status & stats.\n> **3️⃣ 🏆 Leaderboard:** Check the community trust ranking based on votes.\n\n*Note: To prevent spam, data panels will auto-delete after 20 seconds.*")
     .setColor("#ff88aa") 
-    .setImage("https://i.pinimg.com/736x/82/63/ab/8263ab11d6d7919a16692df402dbb97f.jpg") // NHỚ ĐỔI LẠI LINK ẢNH NÀY!
+    .setImage("https://i.pinimg.com/736x/a1/d4/6b/a1d46bd5ff8a6b96c564f5f4d1e23a6a.jpg")
     .setFooter({ text: "System Auto-Updating", iconURL: client.user.displayAvatarURL() })
     .setTimestamp();
 
@@ -106,7 +106,6 @@ client.once("ready", async () => {
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isButton()) {
 
-    // ================= 1️⃣ VOTE START (VỚI HOVER DESCRIPTION) =================
     if (interaction.customId === "btn_vote_start") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -117,7 +116,6 @@ client.on(Events.InteractionCreate, async interaction => {
         .setPlaceholder("Click here to select an Executor...")
         .addOptions(Object.keys(executors).map(key => {
             const stats = dbData[key];
-            // 💡 CẢI TIẾN UX: Hiện trực tiếp thông số hiện tại trên Menu
             let desc = `Platform: ${executors[key].platform}`;
             if (stats && stats.totalVotes > 0) {
               desc += ` | Score: ${stats.percent}% | Votes: ${stats.totalVotes}`;
@@ -140,12 +138,10 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction, 25000);
     }
 
-    // ================= 2️⃣ STATUS PANEL =================
     if (interaction.customId === "btn_panel") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
       
-      // 💡 XỬ LÝ LỖI API (ERROR FALLBACK)
       if (!apiRes.success) {
         const errorEmbed = new EmbedBuilder().setTitle("🚨 API Error").setDescription(apiRes.error).setColor("#ff3333");
         await interaction.editReply({ embeds: [errorEmbed] });
@@ -161,7 +157,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0;
         const totalVotes = stats ? stats.totalVotes : 0;
         const miniChart = totalVotes > 0 ? `\`[👍 ${g} | 🟡 ${n} | 🔴 ${b}]\`` : `\`[No votes yet]\``;
-        const bar = createProportionBar(g, n, b, totalVotes); // GRADIENT BAR
+        const bar = createProportionBar(g, n, b, totalVotes);
 
         return { key, ex, status, percent, totalVotes, miniChart, bar };
       });
@@ -196,7 +192,6 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction);
     }
 
-    // ================= 3️⃣ LEADERBOARD =================
     if (interaction.customId === "btn_lb") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -244,8 +239,6 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction);
     }
 
-    // ================= 4️⃣ XỬ LÝ KHI BẤM NÚT VOTE =================
-    // ================= 4️⃣ XỬ LÝ KHI BẤM NÚT VOTE (KÈM HISTORICAL CHART) =================
     if (interaction.customId.startsWith("vote_")) {
       const [, type, name] = interaction.customId.split("_"); 
       await interaction.deferUpdate();
@@ -257,7 +250,6 @@ client.on(Events.InteractionCreate, async interaction => {
         });
         const response = await res.json();
 
-        // Xử lý báo lỗi Server-side Cooldown
         if (!response.success) {
             const errEmbed = new EmbedBuilder()
               .setTitle("🛑 Anti-Spam / Cooldown Active")
@@ -267,7 +259,7 @@ client.on(Events.InteractionCreate, async interaction => {
             return autoDelete(interaction, 15000); 
         }
 
-        cache.lastFetch = 0; // Clear Cache
+        cache.lastFetch = 0; 
         const freshDataRes = await fetchAllData(); 
         const freshStats = freshDataRes.success && freshDataRes.data[name] ? freshDataRes.data[name] : null;
         
@@ -275,10 +267,9 @@ client.on(Events.InteractionCreate, async interaction => {
         const newScore = freshStats ? freshStats.percent : "?";
         const historyData = freshStats && freshStats.history ? freshStats.history : [];
 
-        // 📈 TẠO LINK HISTORICAL LINE CHART (QUICKCHART.IO)
         let chartUrl = null;
         if (historyData.length > 0) {
-          const labels = historyData.map(h => h.date.slice(-5)); // Chỉ lấy MM-DD
+          const labels = historyData.map(h => h.date.slice(-5)); 
           const dataPoints = historyData.map(h => h.score);
           
           const chartConfig = {
@@ -312,7 +303,6 @@ client.on(Events.InteractionCreate, async interaction => {
             .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n*(Server has recorded your Audit Log & Cooldown timer started)*\n\n📈 **Live Stats for ${executors[name].name}:**\n> Trust Score: **${newScore}%**\n> Total Votes: **${newTotal}**\n\n*(Auto-deletes in 25 seconds)*`)
             .setColor(voteColor);
 
-        // Chèn Mini Chart vào nếu có dữ liệu lịch sử, nếu không có thì dùng GIF cảm xúc như cũ
         if (chartUrl) {
           successEmbed.setImage(chartUrl);
         } else {
@@ -328,6 +318,7 @@ client.on(Events.InteractionCreate, async interaction => {
           return autoDelete(interaction, 10000);
       }
     }
+  } // <======= CHÍNH LÀ DẤU NGOẶC ĐÓNG CỦA if (interaction.isButton()) Ở ĐÂY
 
   // ================= EXECUTOR SELECTION MENU =================
   if (interaction.isStringSelectMenu() && interaction.customId === "select_vote_executor") {
