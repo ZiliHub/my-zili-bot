@@ -40,7 +40,7 @@ async function fetchAllData() {
   }
 }
 
-// 🎨 DYNAMIC COLORS
+// 🎨 DYNAMIC COLORS FOR EMBED
 function getDynamicColor(score, total) {
   if (total === 0) return "#808080"; 
   if (score >= 90) return "#00ff99"; 
@@ -48,26 +48,23 @@ function getDynamicColor(score, total) {
   return "#ff3333"; 
 }
 
-// 📊 PRO PROGRESS BAR (Modern Design)
-function createProgressBar(percent) {
+// 📊 COLOR-CODED PROGRESS BAR
+function createColoredBar(percent) {
   const filled = Math.round((percent / 100) * 10);
-  return `**\`[${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}]\`**`;
+  const empty = 10 - filled;
+  
+  let colorBlock = "🟩"; // Green for >= 90%
+  if (percent < 90) colorBlock = "🟨"; // Yellow for >= 50%
+  if (percent < 50) colorBlock = "🟥"; // Red for < 50%
+  
+  return `${colorBlock.repeat(filled)}${"⬛".repeat(empty)}`;
 }
 
 // 🎭 EMOTIONAL FEEDBACK & GIFS
 const voteFeedback = {
-  good: {
-    msgs: ["Awesome! Thanks for keeping the community updated 🚀", "Legend! We love a smooth working executor 🟢", "Perfect! You just helped thousands of players ✔️"],
-    gif: "https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif" // Anime thumbs up
-  },
-  normal: {
-    msgs: ["Noted! Hopefully the devs patch those bugs soon 🛠️", "Thanks for the heads up! Expect some crashes with this one 🟡", "Recorded! It's surviving, but barely. 📉"],
-    gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" // Anime sigh/sweat
-  },
-  bad: {
-    msgs: ["Yikes! Thanks for taking one for the team 💀", "Warning logged! Everyone stay away from this one for now 🔴", "Ouch! Thanks for scanning the minefield for us 💣"],
-    gif: "https://media.giphy.com/media/4ilFRqgbzbx4c/giphy.gif" // Anime explosion/cry
-  }
+  good: { msgs: ["Awesome! Thanks for keeping the community updated 🚀", "Legend! We love a smooth working executor 🟢"], gif: "https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif" },
+  normal: { msgs: ["Noted! Hopefully the devs patch those bugs soon 🛠️", "Thanks for the heads up! Expect some crashes 🟡"], gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" },
+  bad: { msgs: ["Yikes! Thanks for taking one for the team 💀", "Warning logged! Everyone stay away from this one 🔴"], gif: "https://media.giphy.com/media/4ilFRqgbzbx4c/giphy.gif" }
 };
 
 async function sendVote(name, type, user) {
@@ -89,17 +86,18 @@ client.once("ready", async () => {
   const channel = await client.channels.fetch("1488456249900142645").catch(() => null);
   if (!channel) return;
 
+  // 🥇 MOVED VOTE BUTTON TO TOP / FIRST
   const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("btn_vote_start").setLabel("🗳️ Vote Executor").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId("btn_panel").setLabel("📊 Status Panel").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("btn_lb").setLabel("🏆 Leaderboard").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("btn_vote_start").setLabel("🗳️ Vote Executor").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId("btn_lb").setLabel("🏆 Leaderboard").setStyle(ButtonStyle.Secondary)
   );
 
   const mainEmbed = new EmbedBuilder()
     .setTitle("🚀 EXECUTOR SYSTEM HUB")
-    .setDescription("Welcome to the Executor Status Hub!\n\n**📖 INSTRUCTIONS:**\n> **1️⃣ 📊 Status Panel:** View the current operational status of all Executors.\n> **2️⃣ 🏆 Leaderboard:** Check the community trust ranking based on votes.\n> **3️⃣ 🗳️ Vote Executor:** Rate the Executor you are using (Cooldown is 24h/vote).\n\n*Note: To prevent spam, data panels will auto-delete after 20 seconds.*")
+    .setDescription("Welcome to the Executor Status Hub!\n\n**📖 INSTRUCTIONS:**\n> **1️⃣ 🗳️ Vote Executor:** Rate the Executor you are using (Cooldown is 24h/vote).\n> **2️⃣ 📊 Status Panel:** View the current operational status & stats.\n> **3️⃣ 🏆 Leaderboard:** Check the community trust ranking based on votes.\n\n*Note: To prevent spam, data panels will auto-delete after 20 seconds.*")
     .setColor("#ff88aa") 
-    .setImage("https://i.pinimg.com/736x/82/63/ab/8263ab11d6d7919a16692df402dbb97f.jpg") // NHỚ ĐỔI LẠI LINK ẢNH NÀY!
+    .setImage("https://i.pinimg.com/736x/82/63/ab/8263ab11d6d7919a16692df402dbb97f.jpg") // NHỚ ĐỔI LẠI LINK ẢNH NÀY CỦA BẠN!
     .setFooter({ text: "System Auto-Updating", iconURL: client.user.displayAvatarURL() })
     .setTimestamp();
 
@@ -109,7 +107,27 @@ client.once("ready", async () => {
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isButton()) {
 
-    // 1️⃣ STATUS PANEL (HIGHLIGHT TOP 1)
+    // ================= 1️⃣ VOTE START BUTTON (NOW FIRST) =================
+    if (interaction.customId === "btn_vote_start") {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId("select_vote_executor")
+        .setPlaceholder("Click here to select an Executor...")
+        .addOptions(Object.keys(executors).map(key => ({
+            label: executors[key].name,
+            description: `Platform: ${executors[key].platform}`,
+            value: key,
+            emoji: executors[key].platform.includes("Mobile") ? "📱" : "🖥️"
+        })));
+
+      await interaction.reply({
+        content: "🗳️ **Which Executor do you want to vote for?**\nPlease select from the menu below *(Menu auto-deletes in 20s)*:",
+        components: [new ActionRowBuilder().addComponents(selectMenu)],
+        ephemeral: true
+      });
+      return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
+    }
+
+    // ================= 2️⃣ STATUS PANEL =================
     if (interaction.customId === "btn_panel") {
       await interaction.deferReply({ ephemeral: true });
       const apiData = await fetchAllData();
@@ -120,7 +138,14 @@ client.on(Events.InteractionCreate, async interaction => {
         const status = stats && stats.totalVotes > 0 ? stats.status : ex.base;
         const percent = stats && stats.totalVotes > 0 ? stats.percent : ex.baseScore;
         const totalVotes = stats ? stats.totalVotes : 0;
-        return { key, ex, status, percent, totalVotes };
+        
+        // 📈 FETCH MINI STATS
+        const g = stats ? stats.good : 0;
+        const n = stats ? stats.normal : 0;
+        const b = stats ? stats.bad : 0;
+        const miniChart = totalVotes > 0 ? `\`[👍 ${g} | 🟡 ${n} | 🔴 ${b}]\`` : `\`[No votes yet]\``;
+
+        return { key, ex, status, percent, totalVotes, miniChart };
       });
 
       allData.sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
@@ -128,19 +153,21 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const embed = new EmbedBuilder()
         .setTitle("📊 Current Executor Status")
-        .setDescription("Live database tracking. *(Auto-deletes in 20s)*")
+        .setDescription("Live database tracking with community vote charts. *(Auto-deletes in 20s)*")
         .setColor(panelColor);
 
       const processCategory = (dataArray) => {
         let text = "";
         dataArray.forEach((item, index) => {
-          const bar = createProgressBar(item.percent);
-          // 👑 TÔN VINH TOP 1 LÊN HẲN 1 TẦM CAO MỚI
-          if (index === 0) {
-            text += `🏆 **TOP #1 : ${item.ex.name.toUpperCase()}** 👑\n> **Status:** ${item.status}\n> **Score:** ${bar} **${item.percent}%** \`[${item.totalVotes} votes]\`\n> ━━━━━━━━━━━━━━\n\n`;
+          const coloredBar = createColoredBar(item.percent);
+          
+          // 🏆 HIGHLIGHT TOP 3
+          if (index < 3) {
+            const rankIcon = index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉";
+            text += `> ${rankIcon} **${item.ex.name.toUpperCase()}**\n> Status: ${item.status}\n> Trust: ${coloredBar} **${item.percent}%**\n> Stats: ${item.miniChart}\n> ━━━━━━━━━━━━━━\n\n`;
           } else {
-            // Các top dưới thu gọn lại cho gọn gàng (Mini view)
-            text += `🔹 **${item.ex.name}**\n> Status: ${item.status} | Score: **${item.percent}%** \`[${item.totalVotes} votes]\`\n\n`;
+            // 🔹 MINI LIST FOR THE REST
+            text += `🔹 **${item.ex.name}** — ${item.miniChart}\n> Status: ${item.status} | Trust: **${item.percent}%**\n\n`;
           }
         });
         return text || "Updating...";
@@ -155,7 +182,7 @@ client.on(Events.InteractionCreate, async interaction => {
       return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
     }
 
-    // 2️⃣ LEADERBOARD (HIGHLIGHT TOP 1)
+    // ================= 3️⃣ LEADERBOARD =================
     if (interaction.customId === "btn_lb") {
       await interaction.deferReply({ ephemeral: true });
       const apiData = await fetchAllData();
@@ -176,11 +203,12 @@ client.on(Events.InteractionCreate, async interaction => {
       const processLB = (dataArr) => {
         let text = "";
         dataArr.forEach((item, i) => {
-          if (i === 0) {
-            text += `🥇 **${item.ex.name.toUpperCase()}** \n${createProgressBar(item.percent)} **${item.percent}%** \`[${item.totalVotes} votes]\`\n> ━━━━━━━━━━━━━━\n\n`;
+          const coloredBar = createColoredBar(item.percent);
+          if (i < 3) {
+            const rankIcon = i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉";
+            text += `${rankIcon} **${item.ex.name.toUpperCase()}** \n${coloredBar} **${item.percent}%** \`[${item.totalVotes} votes]\`\n> ━━━━━━━━━━━━━━\n\n`;
           } else {
-            let rankIcon = i === 1 ? "🥈" : i === 2 ? "🥉" : "🏅"; 
-            text += `${rankIcon} **${item.ex.name}** — **${item.percent}%** \`(${item.totalVotes} votes)\`\n\n`;
+            text += `🏅 **${item.ex.name}** — **${item.percent}%** \`(${item.totalVotes} votes)\`\n\n`;
           }
         });
         return text || "No data yet";
@@ -195,27 +223,7 @@ client.on(Events.InteractionCreate, async interaction => {
       return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
     }
 
-    // 3️⃣ VOTE START BUTTON
-    if (interaction.customId === "btn_vote_start") {
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId("select_vote_executor")
-        .setPlaceholder("Click here to select an Executor...")
-        .addOptions(Object.keys(executors).map(key => ({
-            label: executors[key].name,
-            description: `Platform: ${executors[key].platform}`,
-            value: key,
-            emoji: executors[key].platform.includes("Mobile") ? "📱" : "🖥️"
-        })));
-
-      await interaction.reply({
-        content: "🗳️ **Which Executor do you want to vote for?**\nPlease select from the menu below *(Menu auto-deletes in 20s)*:",
-        components: [new ActionRowBuilder().addComponents(selectMenu)],
-        ephemeral: true
-      });
-      return setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
-    }
-
-    // 4️⃣ SEND VOTE + GIF EMOTIONAL FEEDBACK
+    // ================= 4️⃣ SEND VOTE ACTION =================
     if (interaction.customId.startsWith("vote_")) {
       const [, type, name] = interaction.customId.split("_"); 
       await interaction.deferUpdate();
@@ -231,7 +239,6 @@ client.on(Events.InteractionCreate, async interaction => {
         return setTimeout(() => interaction.deleteReply().catch(() => {}), 15000); 
       }
 
-      // 🎭 RANDOM MSG + GIF THEO CẢM XÚC
       const feedbackObj = voteFeedback[type];
       const randomMsg = feedbackObj.msgs[Math.floor(Math.random() * feedbackObj.msgs.length)];
       const voteColor = type === "good" ? "#00ff99" : type === "normal" ? "#ffcc00" : "#ff3333";
@@ -240,7 +247,7 @@ client.on(Events.InteractionCreate, async interaction => {
         .setTitle("✅ Vote Successful!")
         .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n\n*(This message will auto-delete in 15 seconds)*`)
         .setColor(voteColor)
-        .setImage(feedbackObj.gif); // Gắn GIF cảm xúc
+        .setImage(feedbackObj.gif); 
 
       await interaction.editReply({ content: null, embeds: [successEmbed], components: [] });
       return setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
