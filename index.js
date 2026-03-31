@@ -57,7 +57,7 @@ client.once("ready", async () => {
     .setDescription("Welcome to the Executor Status Hub!\n\n**📖 INSTRUCTIONS:**\n> **1️⃣ 📊 Status Panel:** View the current operational status of all Executors (Sorted with the best-rated apps at the top).\n> **2️⃣ 🏆 Leaderboard:** Check the community trust ranking based on votes.\n> **3️⃣ 🗳️ Vote Executor:** Rate the Executor you are using (Good/Normal/Bad) to help others. Cooldown is 24h/vote.\n\n*Note: To prevent spam, data panels will auto-delete after 20 seconds.*")
     .setColor("#ff88aa") 
     // REPLACE WITH YOUR IMAGE URL
-    .setImage("https://i.imgur.com/K9t6d5m.png") 
+    .setImage("https://i.pinimg.com/736x/82/63/ab/8263ab11d6d7919a16692df402dbb97f.jpg") 
     .setFooter({ text: "System Auto-Updating", iconURL: client.user.displayAvatarURL() })
     .setTimestamp();
 
