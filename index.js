@@ -1,4 +1,3 @@
-require('dotenv').config(); // Thêm dòng này để nạp biến môi trường nếu chạy local
 const {
   Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, Events
 } = require('discord.js');
