@@ -43,8 +43,8 @@ async function fetchAllData() {
 // 🎨 DYNAMIC COLORS
 function getDynamicColor(score, total) {
   if (total === 0) return "#808080"; 
-  if (score >= 90) return "#00ff99"; 
-  if (score >= 50) return "#ffcc00"; 
+  if (score >= 80) return "#00ff99"; // Sửa lại ngưỡng theo API mới
+  if (score >= 40) return "#ffcc00"; // Sửa lại ngưỡng theo API mới
   return "#ff3333"; 
 }
 
@@ -73,10 +73,10 @@ const autoDelete = (interaction, ms = 20000) => {
   setTimeout(() => interaction.deleteReply().catch(() => {}), ms);
 };
 
-// 🎭 EMOTIONAL FEEDBACK
+// 🎭 EMOTIONAL FEEDBACK (Đồng bộ "mid")
 const voteFeedback = {
   good: { emoji: "🎉", msgs: ["Awesome! Thanks for keeping the community updated!", "Legend! Smooth working executor confirmed."], gif: "https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif" },
-  normal: { emoji: "⚠️", msgs: ["Noted! Devs need to patch those bugs soon.", "Heads up recorded! Expect some crashes."], gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" },
+  mid: { emoji: "⚠️", msgs: ["Noted! Devs need to patch those bugs soon.", "Heads up recorded! Expect some crashes."], gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" },
   bad: { emoji: "💀", msgs: ["Yikes! Thanks for taking one for the team.", "Warning logged! Everyone stay away from this one."], gif: "https://media.giphy.com/media/4ilFRqgbzbx4c/giphy.gif" }
 };
 
@@ -153,7 +153,8 @@ client.on(Events.InteractionCreate, async interaction => {
         const stats = apiData[key];
         const status = stats && stats.totalVotes > 0 ? stats.status : ex.base;
         const percent = stats && stats.totalVotes > 0 ? stats.percent : ex.baseScore;
-        const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0;
+        // API lưu "mid" dưới dạng "normal" nên lấy stats.normal vẫn là chuẩn xác
+        const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0; 
         const totalVotes = stats ? stats.totalVotes : 0;
         const miniChart = totalVotes > 0 ? `\`[👍 ${g} | 🟡 ${n} | 🔴 ${b}]\`` : `\`[No votes yet]\``;
         const bar = createProportionBar(g, n, b, totalVotes);
@@ -166,7 +167,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const embed = new EmbedBuilder()
         .setTitle("📊 Current Executor Status")
-        .setDescription("Live database tracking with community vote charts.\n🟩 Good | 🟨 Normal | 🟥 Bad *(Auto-deletes in 20s)*")
+        // Đổi chữ "Normal" thành "Mid" trong phần chú thích Panel
+        .setDescription("Live database tracking with community vote charts.\n🟩 Good | 🟨 Mid | 🟥 Bad *(Auto-deletes in 20s)*")
         .setColor(panelColor);
 
       const processCategory = (dataArray) => {
@@ -295,7 +297,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const feedbackObj = voteFeedback[type];
         const randomMsg = feedbackObj.msgs[Math.floor(Math.random() * feedbackObj.msgs.length)];
-        const voteColor = type === "good" ? "#00ff99" : type === "normal" ? "#ffcc00" : "#ff3333";
+        const voteColor = type === "good" ? "#00ff99" : type === "mid" ? "#ffcc00" : "#ff3333"; // Đổi "normal" thành "mid"
 
         const successEmbed = new EmbedBuilder()
             .setTitle(`${feedbackObj.emoji} Vote Successful & Logged!`)
@@ -326,13 +328,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vote_good_${key}`).setLabel("Working").setEmoji("🟢").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`vote_normal_${key}`).setLabel("Issues").setEmoji("🟡").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`vote_mid_${key}`).setLabel("Mid / Issues").setEmoji("🟡").setStyle(ButtonStyle.Secondary), // Cập nhật nút thành vote_mid
       new ButtonBuilder().setCustomId(`vote_bad_${key}`).setLabel("Patched/Ban").setEmoji("🔴").setStyle(ButtonStyle.Danger)
     );
 
     const embed = new EmbedBuilder()
       .setTitle(`🗳️ Rate: ${exName}`)
-      .setDescription(`What is the current status of **${exName}**?\n\n🟢 **Working**: Scripts run smoothly.\n🟡 **Issues**: Crashing, minor bugs.\n🔴 **Patched/Ban**: Completely patched, causes bans.`)
+      .setDescription(`What is the current status of **${exName}**?\n\n🟢 **Working**: Scripts run smoothly.\n🟡 **Mid / Issues**: Crashing, minor bugs.\n🔴 **Patched/Ban**: Completely patched, causes bans.`)
       .setColor("#ffcc00");
 
     await interaction.update({ content: null, embeds: [embed], components: [row] });
