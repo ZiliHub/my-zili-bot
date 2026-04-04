@@ -357,3 +357,13 @@ client.on(Events.InteractionCreate, async interaction => {
 });
 
 client.login(process.env.TOKEN);
+
+// ================= GIỮ MẠNG CHO BOT TRÊN RAILWAY =================
+const http = require('http');
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.write('Bot is running smoothly on Railway!');
+  res.end();
+}).listen(process.env.PORT || 8080, () => {
+  console.log('🌐 Dummy Web Server is running to keep Railway happy!');
+});
