@@ -5,6 +5,9 @@ const {
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const API_URL = "https://temp.hackgpo59.workers.dev/";
 
+// 👑 DANH SÁCH ROLE ĐƯỢC BYPASS COOLDOWN
+const VIP_ROLES = ["1488451031900885043", "1484339345182822480", "1484339394604306522"];
+
 // 📋 EXECUTOR LIST
 const executors = {
   "delta": { name: "Delta", platform: "📱 Mobile", base: "🟢 FULL SUPPORT", baseScore: 96 },
@@ -43,14 +46,14 @@ async function fetchAllData() {
 // 🎨 DYNAMIC COLORS
 function getDynamicColor(score, total) {
   if (total === 0) return "#808080"; 
-  if (score >= 80) return "#00ff99"; // Sửa lại ngưỡng theo API mới
-  if (score >= 40) return "#ffcc00"; // Sửa lại ngưỡng theo API mới
+  if (score >= 80) return "#00ff99"; 
+  if (score >= 40) return "#ffcc00"; 
   return "#ff3333"; 
 }
 
-// 📊 GRADIENT PROPORTION BAR (10 Blocks)
+// 📊 GRADIENT PROPORTION BAR (Bọc block code để đẹp mắt)
 function createProportionBar(good, normal, bad, total) {
-  if (total === 0) return "⬛".repeat(10);
+  if (total === 0) return "`[⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛]`";
   
   let g = Math.round((good / total) * 10);
   let n = Math.round((normal / total) * 10);
@@ -65,7 +68,7 @@ function createProportionBar(good, normal, bad, total) {
   }
   
   g = Math.max(0, g); n = Math.max(0, n); b = Math.max(0, b);
-  return `${"🟩".repeat(g)}${"🟨".repeat(n)}${"🟥".repeat(b)}`;
+  return `\`[${"🟩".repeat(g)}${"🟨".repeat(n)}${"🟥".repeat(b)}]\``;
 }
 
 // 🧹 HELPER: XÓA TIN NHẮN
@@ -73,7 +76,7 @@ const autoDelete = (interaction, ms = 20000) => {
   setTimeout(() => interaction.deleteReply().catch(() => {}), ms);
 };
 
-// 🎭 EMOTIONAL FEEDBACK (Đồng bộ "mid")
+// 🎭 EMOTIONAL FEEDBACK
 const voteFeedback = {
   good: { emoji: "🎉", msgs: ["Awesome! Thanks for keeping the community updated!", "Legend! Smooth working executor confirmed."], gif: "https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif" },
   mid: { emoji: "⚠️", msgs: ["Noted! Devs need to patch those bugs soon.", "Heads up recorded! Expect some crashes."], gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" },
@@ -153,10 +156,11 @@ client.on(Events.InteractionCreate, async interaction => {
         const stats = apiData[key];
         const status = stats && stats.totalVotes > 0 ? stats.status : ex.base;
         const percent = stats && stats.totalVotes > 0 ? stats.percent : ex.baseScore;
-        // API lưu "mid" dưới dạng "normal" nên lấy stats.normal vẫn là chuẩn xác
         const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0; 
         const totalVotes = stats ? stats.totalVotes : 0;
-        const miniChart = totalVotes > 0 ? `\`[👍 ${g} | 🟡 ${n} | 🔴 ${b}]\`` : `\`[No votes yet]\``;
+        
+        // Cải tiến miniChart hiển thị đẹp hơn
+        const miniChart = totalVotes > 0 ? `\`👍 ${g} | 🟡 ${n} | 🔴 ${b}\`` : `\`No votes yet\``;
         const bar = createProportionBar(g, n, b, totalVotes);
 
         return { key, ex, status, percent, totalVotes, miniChart, bar };
@@ -167,18 +171,23 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const embed = new EmbedBuilder()
         .setTitle("📊 Current Executor Status")
-        // Đổi chữ "Normal" thành "Mid" trong phần chú thích Panel
         .setDescription("Live database tracking with community vote charts.\n🟩 Good | 🟨 Mid | 🟥 Bad *(Auto-deletes in 20s)*")
         .setColor(panelColor);
 
+      // 🎨 SỬA LẠI UI ĐẸP HƠN CHO PANEL
       const processCategory = (dataArray) => {
         let text = "";
         dataArray.forEach((item, index) => {
           if (index < 3) {
             const rankIcon = index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉";
-            text += `> ${rankIcon} **${item.ex.name.toUpperCase()}**\n> Status: ${item.status}\n> Trust: **${item.bar}** **${item.percent}%**\n> Stats: ${item.miniChart}\n> ━━━━━━━━━━━━━━\n\n`;
+            text += `${rankIcon} **${item.ex.name.toUpperCase()}**\n`;
+            text += `╰ 📊 **Trust:** ${item.bar} **${item.percent}%**\n`;
+            text += `╰ 📈 **Stats:** ${item.miniChart}\n`;
+            text += `╰ ⚙️ **Status:** ${item.status}\n`;
+            text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
           } else {
-            text += `🔹 **${item.ex.name}** — ${item.miniChart}\n> Status: ${item.status} | Trust: **${item.percent}%**\n\n`;
+            text += `🔹 **${item.ex.name}** — ${item.miniChart}\n`;
+            text += `╰ Trust: **${item.percent}%** | ${item.status}\n\n`;
           }
         });
         return text || "Updating...";
@@ -245,9 +254,13 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.deferUpdate();
 
       try {
+        // 🔥 KIỂM TRA ROLE VIP ĐỂ BYPASS COOLDOWN
+        const hasVipRole = interaction.member && interaction.member.roles.cache.some(role => VIP_ROLES.includes(role.id));
+
         const res = await fetch(API_URL + "vote", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, type, user: interaction.user.id })
+            // Gửi thêm biến bypassCooldown cho Backend
+            body: JSON.stringify({ name, type, user: interaction.user.id, bypassCooldown: hasVipRole })
         });
         const response = await res.json();
 
@@ -297,12 +310,17 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const feedbackObj = voteFeedback[type];
         const randomMsg = feedbackObj.msgs[Math.floor(Math.random() * feedbackObj.msgs.length)];
-        const voteColor = type === "good" ? "#00ff99" : type === "mid" ? "#ffcc00" : "#ff3333"; // Đổi "normal" thành "mid"
+        const voteColor = type === "good" ? "#00ff99" : type === "mid" ? "#ffcc00" : "#ff3333"; 
 
         const successEmbed = new EmbedBuilder()
             .setTitle(`${feedbackObj.emoji} Vote Successful & Logged!`)
             .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n*(Server has recorded your Audit Log & Cooldown timer started)*\n\n📈 **Live Stats for ${executors[name].name}:**\n> Trust Score: **${newScore}%**\n> Total Votes: **${newTotal}**\n\n*(Auto-deletes in 25 seconds)*`)
             .setColor(voteColor);
+
+        // Hiển thị thêm thông báo nếu họ dùng quyền VIP
+        if (hasVipRole) {
+            successEmbed.setFooter({ text: "👑 VIP Role Active: Cooldown Bypassed!" });
+        }
 
         if (chartUrl) {
           successEmbed.setImage(chartUrl);
@@ -319,7 +337,7 @@ client.on(Events.InteractionCreate, async interaction => {
           return autoDelete(interaction, 10000);
       }
     }
-  } // <======= CHÍNH LÀ DẤU NGOẶC ĐÓNG CỦA if (interaction.isButton()) Ở ĐÂY
+  }
 
   // ================= EXECUTOR SELECTION MENU =================
   if (interaction.isStringSelectMenu() && interaction.customId === "select_vote_executor") {
@@ -328,7 +346,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vote_good_${key}`).setLabel("Working").setEmoji("🟢").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`vote_mid_${key}`).setLabel("Mid / Issues").setEmoji("🟡").setStyle(ButtonStyle.Secondary), // Cập nhật nút thành vote_mid
+      new ButtonBuilder().setCustomId(`vote_mid_${key}`).setLabel("Mid / Issues").setEmoji("🟡").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`vote_bad_${key}`).setLabel("Patched/Ban").setEmoji("🔴").setStyle(ButtonStyle.Danger)
     );
 
