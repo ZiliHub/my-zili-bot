@@ -51,24 +51,22 @@ function getDynamicColor(score, total) {
   return "#ff3333"; 
 }
 
-// 📊 GRADIENT PROPORTION BAR (Bọc block code để đẹp mắt)
-function createProportionBar(good, normal, bad, total) {
-  if (total === 0) return "`[⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛]`";
-  
-  let g = Math.round((good / total) * 10);
-  let n = Math.round((normal / total) * 10);
-  let b = Math.round((bad / total) * 10);
+// 📊 SINGLE-COLOR PROGRESS BAR (Giao diện mới)
+function createProportionBar(percent) {
+  let filledCount = Math.round(percent / 10);
+  filledCount = Math.max(0, Math.min(10, filledCount)); 
+  let emptyCount = 10 - filledCount;
 
-  const diff = 10 - (g + n + b);
-  if (diff !== 0) {
-    const max = Math.max(g, n, b);
-    if (max === g) g += diff;
-    else if (max === n) n += diff;
-    else b += diff;
+  let filledIcon = "🟩"; 
+  if (percent < 40) {
+    filledIcon = "🟥"; 
+  } else if (percent < 80) {
+    filledIcon = "🟨"; 
   }
-  
-  g = Math.max(0, g); n = Math.max(0, n); b = Math.max(0, b);
-  return `\`[${"🟩".repeat(g)}${"🟨".repeat(n)}${"🟥".repeat(b)}]\``;
+
+  let emptyIcon = "⬜";
+
+  return `\`[${filledIcon.repeat(filledCount)}${emptyIcon.repeat(emptyCount)}]\``;
 }
 
 // 🧹 HELPER: XÓA TIN NHẮN
@@ -85,6 +83,7 @@ const voteFeedback = {
 
 client.once("ready", async () => {
   console.log(`✅ System Online: ${client.user.tag}`);
+  // LƯU Ý: Nhớ đổi lại ID Kênh này nếu bot gửi nhầm phòng
   const channel = await client.channels.fetch("1488456249900142645").catch(() => null);
   if (!channel) return;
 
@@ -108,6 +107,7 @@ client.once("ready", async () => {
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isButton()) {
 
+    // ================= NÚT VOTE =================
     if (interaction.customId === "btn_vote_start") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -140,6 +140,7 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction, 25000);
     }
 
+    // ================= NÚT PANEL =================
     if (interaction.customId === "btn_panel") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -159,9 +160,8 @@ client.on(Events.InteractionCreate, async interaction => {
         const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0; 
         const totalVotes = stats ? stats.totalVotes : 0;
         
-        // Cải tiến miniChart hiển thị đẹp hơn
         const miniChart = totalVotes > 0 ? `\`👍 ${g} | 🟡 ${n} | 🔴 ${b}\`` : `\`No votes yet\``;
-        const bar = createProportionBar(g, n, b, totalVotes);
+        const bar = createProportionBar(percent); // Gọi hàm progress bar xịn
 
         return { key, ex, status, percent, totalVotes, miniChart, bar };
       });
@@ -174,7 +174,6 @@ client.on(Events.InteractionCreate, async interaction => {
         .setDescription("Live database tracking with community vote charts.\n🟩 Good | 🟨 Mid | 🟥 Bad *(Auto-deletes in 20s)*")
         .setColor(panelColor);
 
-      // 🎨 SỬA LẠI UI ĐẸP HƠN CHO PANEL
       const processCategory = (dataArray) => {
         let text = "";
         dataArray.forEach((item, index) => {
@@ -202,6 +201,7 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction);
     }
 
+    // ================= NÚT LEADERBOARD =================
     if (interaction.customId === "btn_lb") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -212,15 +212,16 @@ client.on(Events.InteractionCreate, async interaction => {
       const apiData = apiRes.data;
       let allData = Object.keys(executors).map(key => {
         const stats = apiData[key];
-        const g = stats ? stats.good : 0, n = stats ? stats.normal : 0, b = stats ? stats.bad : 0;
         const total = stats ? stats.totalVotes : 0;
+        const currentPercent = stats ? stats.percent : executors[key].baseScore;
+        
         return { 
           ex: executors[key], 
-          percent: stats ? stats.percent : 0, 
+          percent: currentPercent, 
           totalVotes: total,
-          bar: createProportionBar(g, n, b, total)
+          bar: createProportionBar(currentPercent) // Cập nhật progress bar xịn
         };
-      }).filter(d => d.totalVotes > 0); 
+      }).filter(d => d.totalVotes > 0); // Leaderboard chỉ hiện những cái đã có vote thật
 
       let mobileData = allData.filter(d => d.ex.platform.includes("Mobile")).sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
       let pcData = allData.filter(d => d.ex.platform.includes("PC")).sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
@@ -249,6 +250,7 @@ client.on(Events.InteractionCreate, async interaction => {
       return autoDelete(interaction);
     }
 
+    // ================= XỬ LÝ SỰ KIỆN KHI NGƯỜI DÙNG BẤM VOTE =================
     if (interaction.customId.startsWith("vote_")) {
       const [, type, name] = interaction.customId.split("_"); 
       await interaction.deferUpdate();
@@ -259,7 +261,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const res = await fetch(API_URL + "vote", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            // Gửi thêm biến bypassCooldown cho Backend
             body: JSON.stringify({ name, type, user: interaction.user.id, bypassCooldown: hasVipRole })
         });
         const response = await res.json();
@@ -317,7 +318,7 @@ client.on(Events.InteractionCreate, async interaction => {
             .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n*(Server has recorded your Audit Log & Cooldown timer started)*\n\n📈 **Live Stats for ${executors[name].name}:**\n> Trust Score: **${newScore}%**\n> Total Votes: **${newTotal}**\n\n*(Auto-deletes in 25 seconds)*`)
             .setColor(voteColor);
 
-        // Hiển thị thêm thông báo nếu họ dùng quyền VIP
+        // Hiện dòng chữ cho anh em VIP
         if (hasVipRole) {
             successEmbed.setFooter({ text: "👑 VIP Role Active: Cooldown Bypassed!" });
         }
@@ -337,7 +338,7 @@ client.on(Events.InteractionCreate, async interaction => {
           return autoDelete(interaction, 10000);
       }
     }
-  }
+  } // KẾT THÚC XỬ LÝ BUTTON
 
   // ================= EXECUTOR SELECTION MENU =================
   if (interaction.isStringSelectMenu() && interaction.customId === "select_vote_executor") {
@@ -359,4 +360,5 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
+// Chạy bot
 client.login(process.env.TOKEN);
