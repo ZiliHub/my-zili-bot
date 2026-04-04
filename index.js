@@ -1,9 +1,9 @@
 const {
   Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, Events
 } = require('discord.js');
+const mongoose = require('mongoose');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const API_URL = "https://temp.hackgpo59.workers.dev/";
 
 // 👑 DANH SÁCH ROLE ĐƯỢC BYPASS COOLDOWN
 const VIP_ROLES = ["1488451031900885043", "1484339345182822480", "1484339394604306522"];
@@ -27,23 +27,50 @@ const executors = {
   "xeno": { name: "Xeno", platform: "🖥 PC", base: "🔴 NOT SUPPORT", baseScore: 5 }
 };
 
-// ⚡ CACHE SYSTEM
-let cache = { data: null, lastFetch: 0 };
+// ================= THIẾT LẬP MONGODB =================
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('✅ Connected to MongoDB Atlas!'))
+  .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
+// Schema Stats & History
+const ExecutorSchema = new mongoose.Schema({
+  nameId: { type: String, required: true, unique: true },
+  good: { type: Number, default: 0 },
+  normal: { type: Number, default: 0 },
+  bad: { type: Number, default: 0 },
+  totalVotes: { type: Number, default: 0 },
+  percent: { type: Number, default: 50 },
+  status: { type: String, default: '⚪ UNKNOWN' },
+  history: { type: Array, default: [] }
+});
+const ExecutorModel = mongoose.model('Executor', ExecutorSchema);
+
+// Schema Cooldown
+const CooldownSchema = new mongoose.Schema({
+  userId: { type: String, required: true, unique: true },
+  expiresAt: { type: Number, required: true }
+});
+const CooldownModel = mongoose.model('Cooldown', CooldownSchema);
+
+// Schema Audit Logs
+const AuditLogSchema = new mongoose.Schema({
+  user: String, executor: String, voteType: String, time: { type: Date, default: Date.now }
+});
+const AuditLogModel = mongoose.model('AuditLog', AuditLogSchema);
+
+// Lấy toàn bộ dữ liệu từ Mongo
 async function fetchAllData() {
-  if (cache.data && Date.now() - cache.lastFetch < 30000) return { success: true, data: cache.data };
   try {
-    const res = await fetch(API_URL + "all");
-    if (!res.ok) throw new Error("API responded with an error");
-    cache.data = await res.json();
-    cache.lastFetch = Date.now();
-    return { success: true, data: cache.data };
+    const docs = await ExecutorModel.find();
+    let data = {};
+    docs.forEach(doc => { data[doc.nameId] = doc; });
+    return { success: true, data };
   } catch (e) {
-    return { success: false, error: "Database offline or fetching failed." };
+    return { success: false, error: "Database fetching failed." };
   }
 }
 
-// 🎨 DYNAMIC COLORS
+// 🎨 GIAO DIỆN & MÀU SẮC
 function getDynamicColor(score, total) {
   if (total === 0) return "#808080"; 
   if (score >= 80) return "#00ff99"; 
@@ -51,30 +78,21 @@ function getDynamicColor(score, total) {
   return "#ff3333"; 
 }
 
-// 📊 SINGLE-COLOR PROGRESS BAR (Giao diện mới)
 function createProportionBar(percent) {
   let filledCount = Math.round(percent / 10);
   filledCount = Math.max(0, Math.min(10, filledCount)); 
   let emptyCount = 10 - filledCount;
-
   let filledIcon = "🟩"; 
-  if (percent < 40) {
-    filledIcon = "🟥"; 
-  } else if (percent < 80) {
-    filledIcon = "🟨"; 
-  }
-
+  if (percent < 40) filledIcon = "🟥"; 
+  else if (percent < 80) filledIcon = "🟨"; 
   let emptyIcon = "⬜";
-
   return `\`[${filledIcon.repeat(filledCount)}${emptyIcon.repeat(emptyCount)}]\``;
 }
 
-// 🧹 HELPER: XÓA TIN NHẮN
 const autoDelete = (interaction, ms = 20000) => {
   setTimeout(() => interaction.deleteReply().catch(() => {}), ms);
 };
 
-// 🎭 EMOTIONAL FEEDBACK
 const voteFeedback = {
   good: { emoji: "🎉", msgs: ["Awesome! Thanks for keeping the community updated!", "Legend! Smooth working executor confirmed."], gif: "https://media.giphy.com/media/11ISwbgCxEzMyY/giphy.gif" },
   mid: { emoji: "⚠️", msgs: ["Noted! Devs need to patch those bugs soon.", "Heads up recorded! Expect some crashes."], gif: "https://media.giphy.com/media/1FqEpoDU0FqAE/giphy.gif" },
@@ -83,7 +101,6 @@ const voteFeedback = {
 
 client.once("ready", async () => {
   console.log(`✅ System Online: ${client.user.tag}`);
-  // LƯU Ý: Nhớ đổi lại ID Kênh này nếu bot gửi nhầm phòng
   const channel = await client.channels.fetch("1488456249900142645").catch(() => null);
   if (!channel) return;
 
@@ -107,7 +124,7 @@ client.once("ready", async () => {
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isButton()) {
 
-    // ================= NÚT VOTE =================
+    // ================= NÚT VOTE MENU =================
     if (interaction.customId === "btn_vote_start") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
@@ -119,11 +136,8 @@ client.on(Events.InteractionCreate, async interaction => {
         .addOptions(Object.keys(executors).map(key => {
             const stats = dbData[key];
             let desc = `Platform: ${executors[key].platform}`;
-            if (stats && stats.totalVotes > 0) {
-              desc += ` | Score: ${stats.percent}% | Votes: ${stats.totalVotes}`;
-            } else {
-              desc += ` | Unrated (Base: ${executors[key].baseScore}%)`;
-            }
+            if (stats && stats.totalVotes > 0) desc += ` | Score: ${stats.percent}% | Votes: ${stats.totalVotes}`;
+            else desc += ` | Unrated (Base: ${executors[key].baseScore}%)`;
 
             return {
               label: executors[key].name,
@@ -144,12 +158,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.customId === "btn_panel") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
-      
-      if (!apiRes.success) {
-        const errorEmbed = new EmbedBuilder().setTitle("🚨 API Error").setDescription(apiRes.error).setColor("#ff3333");
-        await interaction.editReply({ embeds: [errorEmbed] });
-        return autoDelete(interaction);
-      }
+      if (!apiRes.success) return interaction.editReply({ embeds: [new EmbedBuilder().setTitle("🚨 API Error").setDescription(apiRes.error).setColor("#ff3333")] }).then(() => autoDelete(interaction));
 
       const apiData = apiRes.data;
       let allData = Object.keys(executors).map(key => {
@@ -161,7 +170,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const totalVotes = stats ? stats.totalVotes : 0;
         
         const miniChart = totalVotes > 0 ? `\`👍 ${g} | 🟡 ${n} | 🔴 ${b}\`` : `\`No votes yet\``;
-        const bar = createProportionBar(percent); // Gọi hàm progress bar xịn
+        const bar = createProportionBar(percent);
 
         return { key, ex, status, percent, totalVotes, miniChart, bar };
       });
@@ -169,24 +178,16 @@ client.on(Events.InteractionCreate, async interaction => {
       allData.sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
       const panelColor = getDynamicColor(allData[0]?.percent || 0, allData[0]?.totalVotes || 1);
 
-      const embed = new EmbedBuilder()
-        .setTitle("📊 Current Executor Status")
-        .setDescription("Live database tracking with community vote charts.\n🟩 Good | 🟨 Mid | 🟥 Bad *(Auto-deletes in 20s)*")
-        .setColor(panelColor);
+      const embed = new EmbedBuilder().setTitle("📊 Current Executor Status").setDescription("Live MongoDB tracking.\n🟩 Good | 🟨 Mid | 🟥 Bad *(Auto-deletes in 20s)*").setColor(panelColor);
 
       const processCategory = (dataArray) => {
         let text = "";
         dataArray.forEach((item, index) => {
           if (index < 3) {
             const rankIcon = index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉";
-            text += `${rankIcon} **${item.ex.name.toUpperCase()}**\n`;
-            text += `╰ 📊 **Trust:** ${item.bar} **${item.percent}%**\n`;
-            text += `╰ 📈 **Stats:** ${item.miniChart}\n`;
-            text += `╰ ⚙️ **Status:** ${item.status}\n`;
-            text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+            text += `${rankIcon} **${item.ex.name.toUpperCase()}**\n╰ 📊 **Trust:** ${item.bar} **${item.percent}%**\n╰ 📈 **Stats:** ${item.miniChart}\n╰ ⚙️ **Status:** ${item.status}\n━━━━━━━━━━━━━━━━━━━━━━\n`;
           } else {
-            text += `🔹 **${item.ex.name}** — ${item.miniChart}\n`;
-            text += `╰ Trust: **${item.percent}%** | ${item.status}\n\n`;
+            text += `🔹 **${item.ex.name}** — ${item.miniChart}\n╰ Trust: **${item.percent}%** | ${item.status}\n\n`;
           }
         });
         return text || "Updating...";
@@ -196,7 +197,6 @@ client.on(Events.InteractionCreate, async interaction => {
         { name: "📱 MOBILE EXECUTORS", value: processCategory(allData.filter(d => d.ex.platform.includes("Mobile"))) },
         { name: "🖥️ PC EXECUTORS", value: processCategory(allData.filter(d => d.ex.platform.includes("PC"))) }
       );
-
       await interaction.editReply({ embeds: [embed] });
       return autoDelete(interaction);
     }
@@ -205,23 +205,15 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.customId === "btn_lb") {
       await interaction.deferReply({ ephemeral: true });
       const apiRes = await fetchAllData();
-      if (!apiRes.success) {
-        return interaction.editReply({ embeds: [new EmbedBuilder().setTitle("🚨 Error").setDescription(apiRes.error).setColor("#ff3333")] }).then(() => autoDelete(interaction));
-      }
+      if (!apiRes.success) return interaction.editReply({ embeds: [new EmbedBuilder().setTitle("🚨 Error").setDescription(apiRes.error).setColor("#ff3333")] }).then(() => autoDelete(interaction));
 
       const apiData = apiRes.data;
       let allData = Object.keys(executors).map(key => {
         const stats = apiData[key];
         const total = stats ? stats.totalVotes : 0;
         const currentPercent = stats ? stats.percent : executors[key].baseScore;
-        
-        return { 
-          ex: executors[key], 
-          percent: currentPercent, 
-          totalVotes: total,
-          bar: createProportionBar(currentPercent) // Cập nhật progress bar xịn
-        };
-      }).filter(d => d.totalVotes > 0); // Leaderboard chỉ hiện những cái đã có vote thật
+        return { ex: executors[key], percent: currentPercent, totalVotes: total, bar: createProportionBar(currentPercent) };
+      }).filter(d => d.totalVotes > 0); 
 
       let mobileData = allData.filter(d => d.ex.platform.includes("Mobile")).sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
       let pcData = allData.filter(d => d.ex.platform.includes("PC")).sort((a, b) => b.percent - a.percent || b.totalVotes - a.totalVotes);
@@ -234,77 +226,87 @@ client.on(Events.InteractionCreate, async interaction => {
           if (i < 3) {
             const rankIcon = i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉";
             text += `${rankIcon} **${item.ex.name.toUpperCase()}** \n**${item.bar}** **${item.percent}%** \`[${item.totalVotes} votes]\`\n> ━━━━━━━━━━━━━━\n\n`;
-          } else {
-            text += `🏅 **${item.ex.name}** — **${item.percent}%** \`(${item.totalVotes} votes)\`\n\n`;
-          }
+          } else text += `🏅 **${item.ex.name}** — **${item.percent}%** \`(${item.totalVotes} votes)\`\n\n`;
         });
         return text || "No data yet";
       };
 
-      embed.addFields(
-        { name: "📱 TOP MOBILE", value: processLB(mobileData) },
-        { name: "🖥️ TOP PC", value: processLB(pcData) }
-      );
-
+      embed.addFields({ name: "📱 TOP MOBILE", value: processLB(mobileData) }, { name: "🖥️ TOP PC", value: processLB(pcData) });
       await interaction.editReply({ embeds: [embed] });
       return autoDelete(interaction);
     }
 
-    // ================= XỬ LÝ SỰ KIỆN KHI NGƯỜI DÙNG BẤM VOTE =================
+    // ================= XỬ LÝ VOTE VÀO DATABASE =================
     if (interaction.customId.startsWith("vote_")) {
       const [, type, name] = interaction.customId.split("_"); 
       await interaction.deferUpdate();
 
       try {
-        // 🔥 KIỂM TRA ROLE VIP ĐỂ BYPASS COOLDOWN
+        const userId = interaction.user.id;
         const hasVipRole = interaction.member && interaction.member.roles.cache.some(role => VIP_ROLES.includes(role.id));
+        const voteType = type === "mid" ? "normal" : type;
 
-        const res = await fetch(API_URL + "vote", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, type, user: interaction.user.id, bypassCooldown: hasVipRole })
-        });
-        const response = await res.json();
-
-        if (!response.success) {
-            const errEmbed = new EmbedBuilder()
-              .setTitle("🛑 Anti-Spam / Cooldown Active")
-              .setDescription(response.error)
-              .setColor("#ff3333");
+        // 1. KIỂM TRA COOLDOWN
+        if (!hasVipRole) {
+          const cd = await CooldownModel.findOne({ userId });
+          if (cd && cd.expiresAt > Date.now()) {
+            const timeLeft = cd.expiresAt - Date.now();
+            const hours = Math.floor(timeLeft / 3600000);
+            const minutes = Math.floor((timeLeft % 3600000) / 60000);
+            const errEmbed = new EmbedBuilder().setTitle("🛑 Cooldown Active").setDescription(`⏳ You have already voted today!\nPlease wait **${hours}h ${minutes}m** before voting again.`).setColor("#ff3333");
             await interaction.editReply({ content: null, embeds: [errEmbed], components: [] });
-            return autoDelete(interaction, 15000); 
+            return autoDelete(interaction, 15000);
+          }
         }
 
-        cache.lastFetch = 0; 
-        const freshDataRes = await fetchAllData(); 
-        const freshStats = freshDataRes.success && freshDataRes.data[name] ? freshDataRes.data[name] : null;
-        
-        const newTotal = freshStats ? freshStats.totalVotes : "?";
-        const newScore = freshStats ? freshStats.percent : "?";
-        const historyData = freshStats && freshStats.history ? freshStats.history : [];
+        // 2. LẤY & CẬP NHẬT STATS
+        let exData = await ExecutorModel.findOne({ nameId: name });
+        if (!exData) exData = new ExecutorModel({ nameId: name });
 
+        exData[voteType] += 1;
+        exData.totalVotes += 1;
+
+        // TÍNH ĐIỂM BAYESIAN CHUẨN XÁC THEO LOGIC CŨ CỦA BẠN
+        const totalActualPoints = (exData.good * 100) + (exData.normal * 50) + (exData.bad * 0);
+        const CONST_VOTES = 5; 
+        const CONST_SCORE = 50; 
+        exData.percent = Math.round((totalActualPoints + (CONST_VOTES * CONST_SCORE)) / (exData.totalVotes + CONST_VOTES));
+
+        if (exData.percent >= 80) exData.status = "🟢 FULL SUPPORT";
+        else if (exData.percent >= 40) exData.status = "🟡 LIMITED";
+        else exData.status = "🔴 NOT SUPPORT";
+
+        // CẬP NHẬT HISTORY
+        const today = new Date().toISOString().split('T')[0];
+        const todayRecordIndex = exData.history.findIndex(h => h.date === today);
+        if (todayRecordIndex > -1) {
+          exData.history[todayRecordIndex].score = exData.percent;
+        } else {
+          exData.history.push({ date: today, score: exData.percent });
+        }
+        if (exData.history.length > 7) exData.history.shift();
+
+        // 3. LƯU VÀO DATABASE MONGODB
+        await exData.save();
+
+        if (!hasVipRole) {
+          await CooldownModel.findOneAndUpdate(
+            { userId }, 
+            { expiresAt: Date.now() + 86400000 }, 
+            { upsert: true }
+          );
+        }
+
+        await new AuditLogModel({ user: userId, executor: name, voteType: type }).save();
+
+        // 4. TẠO CHART VÀ TRẢ LỜI NGƯỜI DÙNG
         let chartUrl = null;
-        if (historyData.length > 0) {
-          const labels = historyData.map(h => h.date.slice(-5)); 
-          const dataPoints = historyData.map(h => h.score);
-          
+        if (exData.history.length > 0) {
+          const labels = exData.history.map(h => h.date.slice(-5)); 
+          const dataPoints = exData.history.map(h => h.score);
           const chartConfig = {
-            type: 'line',
-            data: {
-              labels: labels,
-              datasets: [{
-                label: 'Trust Score 7 Days',
-                data: dataPoints,
-                borderColor: '#00ff99',
-                backgroundColor: 'rgba(0, 255, 153, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4
-              }]
-            },
-            options: {
-              legend: { display: false },
-              scales: { yAxes: [{ ticks: { min: 0, max: 100 } }] }
-            }
+            type: 'line', data: { labels: labels, datasets: [{ label: 'Trust Score 7 Days', data: dataPoints, borderColor: '#00ff99', backgroundColor: 'rgba(0, 255, 153, 0.1)', borderWidth: 2, fill: true, tension: 0.4 }] },
+            options: { legend: { display: false }, scales: { yAxes: [{ ticks: { min: 0, max: 100 } }] } }
           };
           chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&w=400&h=200`;
         }
@@ -315,30 +317,24 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const successEmbed = new EmbedBuilder()
             .setTitle(`${feedbackObj.emoji} Vote Successful & Logged!`)
-            .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n*(Server has recorded your Audit Log & Cooldown timer started)*\n\n📈 **Live Stats for ${executors[name].name}:**\n> Trust Score: **${newScore}%**\n> Total Votes: **${newTotal}**\n\n*(Auto-deletes in 25 seconds)*`)
+            .setDescription(`**${randomMsg}**\n\nThank you <@${interaction.user.id}>! You voted **${type.toUpperCase()}** for **${executors[name].name}**.\n*(Server has recorded your Audit Log & Cooldown timer started)*\n\n📈 **Live Stats for ${executors[name].name}:**\n> Trust Score: **${exData.percent}%**\n> Total Votes: **${exData.totalVotes}**\n\n*(Auto-deletes in 25 seconds)*`)
             .setColor(voteColor);
 
-        // Hiện dòng chữ cho anh em VIP
-        if (hasVipRole) {
-            successEmbed.setFooter({ text: "👑 VIP Role Active: Cooldown Bypassed!" });
-        }
-
-        if (chartUrl) {
-          successEmbed.setImage(chartUrl);
-        } else {
-          successEmbed.setImage(feedbackObj.gif); 
-        }
+        if (hasVipRole) successEmbed.setFooter({ text: "👑 VIP Role Active: Cooldown Bypassed!" });
+        if (chartUrl) successEmbed.setImage(chartUrl);
+        else successEmbed.setImage(feedbackObj.gif); 
 
         await interaction.editReply({ content: null, embeds: [successEmbed], components: [] });
         return autoDelete(interaction, 25000);
 
       } catch (error) {
-          const errEmbed = new EmbedBuilder().setTitle("🚨 Connection Error").setDescription("Could not connect to the database.").setColor("#ff3333");
+          console.error(error);
+          const errEmbed = new EmbedBuilder().setTitle("🚨 Connection Error").setDescription("Database failed to process your vote.").setColor("#ff3333");
           await interaction.editReply({ content: null, embeds: [errEmbed], components: [] });
           return autoDelete(interaction, 10000);
       }
     }
-  } // KẾT THÚC XỬ LÝ BUTTON
+  }
 
   // ================= EXECUTOR SELECTION MENU =================
   if (interaction.isStringSelectMenu() && interaction.customId === "select_vote_executor") {
@@ -360,5 +356,4 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// Chạy bot
 client.login(process.env.TOKEN);
