@@ -267,10 +267,18 @@ client.on(Events.InteractionCreate, async interaction => {
         exData.totalVotes += 1;
 
         // TÍNH ĐIỂM BAYESIAN CHUẨN XÁC THEO LOGIC CŨ CỦA BẠN
-        const totalActualPoints = (exData.good * 100) + (exData.normal * 50) + (exData.bad * 0);
-        const CONST_VOTES = 5; 
-        const CONST_SCORE = 50; 
-        exData.percent = Math.round((totalActualPoints + (CONST_VOTES * CONST_SCORE)) / (exData.totalVotes + CONST_VOTES));
+        function wilsonScore(positive, total) {
+          if (total === 0) return 0;
+        
+          const z = 1.96; // 95% confidence
+          const p = positive / total;
+        
+          const left = p + (z*z) / (2 * total);
+          const right = z * Math.sqrt((p * (1 - p) + (z*z) / (4 * total)) / total);
+          const bottom = 1 + (z*z) / total;
+        
+          return (left - right) / bottom;
+        }
 
         if (exData.percent >= 80) exData.status = "🟢 FULL SUPPORT";
         else if (exData.percent >= 40) exData.status = "🟡 LIMITED";
